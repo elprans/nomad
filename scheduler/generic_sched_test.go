@@ -5779,3 +5779,123 @@ func TestServiceSched_RunningWithNextAllocation(t *testing.T) {
 	require.Len(t, allocsByVersion[1], 2)
 	require.Len(t, allocsByVersion[0], 3)
 }
+
+func TestServiceSched_CSIVolumesPerAlloc(t *testing.T) {
+	h := NewHarness(t)
+	require := require.New(t)
+
+	// Create some nodes, each running the CSI plugin
+	for i := 0; i < 5; i++ {
+		node := mock.Node()
+		node.CSINodePlugins = map[string]*structs.CSIInfo{
+			"test-plugin": {
+				PluginID: "test-plugin",
+				Healthy:  true,
+				NodeInfo: &structs.CSINodeInfo{MaxVolumes: 2},
+			},
+		}
+		require.NoError(h.State.UpsertNode(
+			structs.MsgTypeTestSetup, h.NextIndex(), node))
+	}
+
+	// create per-alloc volumes
+	for i := 0; i < 3; i++ {
+		vol := structs.NewCSIVolume(fmt.Sprintf("volume-unique[%d]", i), 0)
+		vol.PluginID = "test-plugin"
+		vol.Namespace = structs.DefaultNamespace
+		vol.AccessMode = structs.CSIVolumeAccessModeSingleNodeWriter
+		vol.AttachmentMode = structs.CSIVolumeAttachmentModeFilesystem
+		require.NoError(h.State.CSIVolumeRegister(
+			h.NextIndex(), []*structs.CSIVolume{vol},
+		))
+	}
+
+	// create shared volume
+	vol := structs.NewCSIVolume("volume-shared", 0)
+	vol.PluginID = "test-plugin"
+	vol.Namespace = structs.DefaultNamespace
+
+	// TODO: this should fail, see GH-10157
+	// replace this value with structs.CSIVolumeAccessModeSingleNodeWriter
+	// once its been fixed
+	vol.AccessMode = structs.CSIVolumeAccessModeMultiNodeReader
+
+	vol.AttachmentMode = structs.CSIVolumeAttachmentModeFilesystem
+	require.NoError(h.State.CSIVolumeRegister(
+		h.NextIndex(), []*structs.CSIVolume{vol},
+	))
+
+	// Create a job that uses both
+	job := mock.Job()
+	job.TaskGroups[0].Count = 3
+	job.TaskGroups[0].Volumes = map[string]*structs.VolumeRequest{
+		"shared": {
+			Type:     "csi",
+			Name:     "shared",
+			Source:   "volume-shared",
+			ReadOnly: true,
+		},
+		"unique": {
+			Type:     "csi",
+			Name:     "unique",
+			Source:   "volume-unique",
+			PerAlloc: true,
+		},
+	}
+
+	require.NoError(h.State.UpsertJob(structs.MsgTypeTestSetup, h.NextIndex(), job))
+
+	// Create a mock evaluation to register the job
+	eval := &structs.Evaluation{
+		Namespace:   structs.DefaultNamespace,
+		ID:          uuid.Generate(),
+		Priority:    job.Priority,
+		TriggeredBy: structs.EvalTriggerJobRegister,
+		JobID:       job.ID,
+		Status:      structs.EvalStatusPending,
+	}
+
+	require.NoError(h.State.UpsertEvals(structs.MsgTypeTestSetup,
+		h.NextIndex(), []*structs.Evaluation{eval}))
+
+	// Process the evaluation
+	err := h.Process(NewServiceScheduler, eval)
+	require.NoError(err)
+
+	// Ensure a single plan without annotations
+	require.Len(h.Plans, 1, "expected one plan")
+	require.NoError(err)
+	plan := h.Plans[0]
+	require.Nil(plan.Annotations, "expected no annotations")
+
+	// Ensure the eval has no spawned blocked eval
+	require.Equal(len(h.CreateEvals), 0)
+	require.Equal("", h.Evals[0].BlockedEval)
+	h.AssertEvalStatus(t, structs.EvalStatusComplete)
+
+	// Ensure the plan allocated and we got expected placements
+	var planned []*structs.Allocation
+	for _, allocList := range plan.NodeAllocation {
+		planned = append(planned, allocList...)
+	}
+	require.Len(planned, 3, "expected 3 planned allocations")
+
+	ws := memdb.NewWatchSet()
+	out, err := h.State.AllocsByJob(ws, job.Namespace, job.ID, false)
+	require.NoError(err)
+
+	require.Len(out, 3, "expected 3 placed allocations")
+
+	// Allocations don't have references to the actual volumes assigned, but
+	// because we set a max of 2 volumes per Node plugin, we can verify that
+	// they've been properly scheduled by making sure they're all on separate
+	// clients.
+	seen := map[string]struct{}{}
+	for _, alloc := range out {
+		_, ok := seen[alloc.NodeID]
+		require.False(ok, "allocations should be scheduled to separate nodes")
+		seen[alloc.NodeID] = struct{}{}
+	}
+}
+
+func TestServiceSched_CSIVolumesPerAlloc_Update(t *testing.T) {}

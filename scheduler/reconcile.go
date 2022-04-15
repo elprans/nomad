@@ -639,6 +639,7 @@ func (a *allocReconciler) cancelUnneededCanaries(original allocSet, desiredChang
 			alloc.ClientStatus = structs.AllocClientStatusUnknown
 			alloc.ClientDescription = allocUnknown
 			alloc.DesiredStatus = structs.AllocDesiredStatusStop
+			alloc.AppendState(structs.AllocStateFieldClientStatus, structs.AllocClientStatusUnknown)
 			a.result.disconnectUpdates[alloc.ID] = alloc
 		}
 

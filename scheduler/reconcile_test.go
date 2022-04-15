@@ -5705,3 +5705,159 @@ func TestReconciler_DisconnectedNode_Canary(t *testing.T) {
 
 	assertNamesHaveIndexes(t, intRange(1, 1), placeResultsToNames(result.place))
 }
+
+// Tests that a client disconnect while a canary is in progress generates the result.
+func TestReconciler_Client_Disconnect_Canaries(t *testing.T) {
+
+	type testCase struct {
+		name            string
+		nodes           []string
+		deploymentState *structs.DeploymentState
+		deployedAllocs  map[*structs.Node][]*structs.Allocation
+		canaryAllocs    map[*structs.Node][]*structs.Allocation
+		expectedResult  *resultExpectation
+	}
+
+	maxClientDisconnect := 10 * time.Minute
+
+	readyNode := mock.Node()
+	readyNode.Name = "ready-" + readyNode.ID
+	readyNode.Status = structs.NodeStatusReady
+
+	disconnectedNode := mock.Node()
+	disconnectedNode.Name = "disconnected-" + disconnectedNode.ID
+	disconnectedNode.Status = structs.NodeStatusDisconnected
+
+	// Job with allocations and max_client_disconnect
+	job := mock.Job()
+
+	updatedJob := job.Copy()
+	updatedJob.Version = updatedJob.Version + 1
+
+	testCases := []testCase{
+		{
+			name: "3-placed-2-healthy",
+			deploymentState: &structs.DeploymentState{
+				AutoRevert:        false,
+				AutoPromote:       false,
+				Promoted:          false,
+				ProgressDeadline:  5 * time.Minute,
+				RequireProgressBy: time.Now().Add(5 * time.Minute),
+				PlacedCanaries:    []string{},
+				DesiredCanaries:   1,
+				DesiredTotal:      6,
+				PlacedAllocs:      3,
+				HealthyAllocs:     2,
+				UnhealthyAllocs:   0,
+			},
+			deployedAllocs: map[*structs.Node][]*structs.Allocation{
+				readyNode: {
+					&structs.Allocation{Name: "my-job.web[0]", ClientStatus: structs.AllocClientStatusComplete, DesiredStatus: structs.AllocDesiredStatusStop},
+					&structs.Allocation{Name: "my-job.web[2]", ClientStatus: structs.AllocClientStatusRunning, DesiredStatus: structs.AllocDesiredStatusStop},
+					&structs.Allocation{Name: "my-job.web[4]", ClientStatus: structs.AllocClientStatusRunning, DesiredStatus: structs.AllocDesiredStatusRun},
+				},
+				disconnectedNode: {
+					&structs.Allocation{Name: "my-job.web[1]", ClientStatus: structs.AllocClientStatusComplete, DesiredStatus: structs.AllocDesiredStatusStop},
+					&structs.Allocation{Name: "my-job.web[3]", ClientStatus: structs.AllocClientStatusRunning, DesiredStatus: structs.AllocDesiredStatusRun},
+					&structs.Allocation{Name: "my-job.web[5]", ClientStatus: structs.AllocClientStatusRunning, DesiredStatus: structs.AllocDesiredStatusRun},
+				},
+			},
+			canaryAllocs: map[*structs.Node][]*structs.Allocation{
+				readyNode: {
+					&structs.Allocation{Name: "my-job.web[0]", ClientStatus: structs.AllocClientStatusRunning, DesiredStatus: structs.AllocDesiredStatusRun},
+					&structs.Allocation{Name: "my-job.web[2]", ClientStatus: structs.AllocClientStatusPending, DesiredStatus: structs.AllocDesiredStatusRun},
+				},
+				disconnectedNode: {
+					&structs.Allocation{Name: "my-job.web[1]", ClientStatus: structs.AllocClientStatusRunning, DesiredStatus: structs.AllocDesiredStatusRun},
+				},
+			},
+			expectedResult: &resultExpectation{
+				createDeployment:  nil,
+				deploymentUpdates: nil,
+				place:             1,
+				destructive:       3,
+				stop:              3,
+				inplace:           0,
+				attributeUpdates:  0,
+				disconnectUpdates: 1,
+				reconnectUpdates:  0,
+				desiredTGUpdates: map[string]*structs.DesiredUpdates{
+					updatedJob.TaskGroups[0].Name: {
+						Canary: 1,
+						Ignore: 11,
+					},
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Set the count dynamically to the number from the original deployment.
+			job.TaskGroups[0].Count = len(tc.deployedAllocs[readyNode]) + len(tc.deployedAllocs[disconnectedNode])
+			job.TaskGroups[0].MaxClientDisconnect = &maxClientDisconnect
+			updatedJob.TaskGroups[0].Count = len(tc.deployedAllocs[readyNode]) + len(tc.deployedAllocs[disconnectedNode])
+			updatedJob.TaskGroups[0].MaxClientDisconnect = &maxClientDisconnect
+
+			// Populate Alloc IDS, Node IDs, Job on deployed allocs
+			allocsConfigured := 0
+			for node, allocs := range tc.deployedAllocs {
+				for _, alloc := range allocs {
+					alloc.ID = uuid.Generate()
+					alloc.NodeID = node.ID
+					alloc.NodeName = node.Name
+					alloc.JobID = job.ID
+					alloc.Job = job
+					alloc.TaskGroup = job.TaskGroups[0].Name
+					allocsConfigured++
+				}
+			}
+
+			require.Equal(t, tc.deploymentState.DesiredTotal, allocsConfigured, "invalid alloc configuration: expect %d got %d", tc.deploymentState.DesiredTotal, allocsConfigured)
+
+			// Populate Alloc IDS, Node IDs, Job on canaries
+			canariesConfigured := 0
+			handled := make(map[string]allocUpdateType)
+			for node, allocs := range tc.canaryAllocs {
+				for _, alloc := range allocs {
+					alloc.ID = uuid.Generate()
+					alloc.NodeID = node.ID
+					alloc.NodeName = node.Name
+					alloc.JobID = updatedJob.ID
+					alloc.Job = updatedJob
+					alloc.TaskGroup = updatedJob.TaskGroups[0].Name
+					tc.deploymentState.PlacedCanaries = append(tc.deploymentState.PlacedCanaries, alloc.ID)
+					handled[alloc.ID] = allocUpdateFnIgnore
+					canariesConfigured++
+				}
+			}
+
+			// Validate tc.canaryAllocs against tc.deploymentState
+			require.Equal(t, tc.deploymentState.PlacedAllocs, canariesConfigured, "invalid canary configuration: expect %d got %d", tc.deploymentState.PlacedAllocs, canariesConfigured)
+
+			deployment := structs.NewDeployment(updatedJob, 50)
+			deployment.TaskGroups[updatedJob.TaskGroups[0].Name] = tc.deploymentState
+
+			// Build a map of tainted nodes that contains the last canary
+			tainted := make(map[string]*structs.Node, 1)
+			tainted[disconnectedNode.ID] = disconnectedNode
+
+			allocs := make([]*structs.Allocation, 0)
+
+			allocs = append(tc.deployedAllocs[readyNode])
+			allocs = append(tc.deployedAllocs[disconnectedNode])
+			allocs = append(tc.canaryAllocs[readyNode])
+			allocs = append(tc.canaryAllocs[disconnectedNode])
+
+			mockUpdateFn := allocUpdateFnMock(handled, allocUpdateFnDestructive)
+			reconciler := NewAllocReconciler(testlog.HCLogger(t), mockUpdateFn, false, updatedJob.ID, updatedJob,
+				deployment, allocs, tainted, "", 50, true)
+			result := reconciler.Compute()
+
+			// Assert the correct results
+			assertResults(t, result, tc.expectedResult)
+
+			assertNamesHaveIndexes(t, intRange(1, 1), placeResultsToNames(result.place))
+		})
+	}
+}

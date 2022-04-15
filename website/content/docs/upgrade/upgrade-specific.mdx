@@ -126,6 +126,21 @@ connect {
 }
 ```
 
+#### Changes to Consul Connect Service Identity Tokens
+
+Starting with Nomad 1.3.0, Consul Service Identity Tokens created automatically
+by Nomad on behalf of Connect services will now be created as [`Local`] tokens. These
+tokens will no longer be replicated globally. To ensure Connect services making
+cross Consul datacenter requests continue to work, Consul agents of the destination
+services must be configured with a [default anonymous][anon_token] ACL token with `read` policy
+privileges on the necessary services and nodes. A typical ACL policy for such a
+token may contain these attributes:
+
+```hcl
+service_prefix "" { policy = "read" }
+node_prefix    "" { policy = "read" }
+```
+
 #### Linux Control Groups Version 2
 
 Starting with Nomad 1.3.0, Linux systems configured to use [cgroups v2][cgroups2]
@@ -1376,3 +1391,5 @@ deleted and then Nomad 0.3.0 can be launched.
 [cap_drop_exec]: /docs/drivers/exec#cap_drop
 [`log_file`]: /docs/configuration#log_file
 [Upgrading to Raft Protocol 3]: /docs/upgrade#upgrading-to-raft-protocol-3
+[`Local`]: https://www.consul.io/docs/security/acl/acl-tokens#token-attributes
+[anon_token]: https://www.consul.io/docs/security/acl/acl-tokens#special-purpose-tokens

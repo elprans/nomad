@@ -121,10 +121,10 @@ jobs:
           echo -e "## ${{ github.event.inputs.version }} ($(date '+%B %d, %Y'))\n$(make changelog)\n\n$(cat CHANGELOG.md)" > CHANGELOG.md
           git diff --color=always CHANGELOG.md
 
-      - name: Generate static assets
-        id: generate-static-assets
-        run: |
-          make prerelease
+          #      - name: Generate static assets
+          #        id: generate-static-assets
+          #        run: |
+          #          make prerelease
 
       - name: Commit and push changes
         id: commit-change-push

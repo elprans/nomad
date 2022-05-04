@@ -188,7 +188,8 @@ jobs:
 
       - name: Commit post-release changes
         run: |
-          git diff --color=always
+          # Display stated and unstaged diffs.
+          git diff --color=always HEAD
           git add -A .
           if ! git diff-index --quiet HEAD --; then
             git commit --message 'Prepare for next release'

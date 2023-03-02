@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	multierror "github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/go-set"
 	"github.com/hashicorp/hcl/hcl/ast"
@@ -477,6 +479,18 @@ OUTER:
 		return false
 	}
 	return true
+}
+
+// OpaqueMapsEq compare maps[<comparable>]<any> for equality, but safely by
+// using the cmp package and ignoring un-exported types, and by treating nil/empty
+// slices and maps as equal.
+func OpaqueMapsEq[M ~map[K]V, K comparable, V any](m1, m2 M) bool {
+	return maps.EqualFunc(m1, m2, func(a, b V) bool {
+		return cmp.Equal(a, b,
+			cmpopts.IgnoreUnexported(), // ignore private fields
+			cmpopts.EquateEmpty(),      // nil/empty slices treated as equal
+		)
+	})
 }
 
 // WithLock executes a function while holding a lock.

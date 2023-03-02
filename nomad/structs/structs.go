@@ -2700,6 +2700,22 @@ type AllocatedPortMapping struct {
 
 type AllocatedPorts []AllocatedPortMapping
 
+func (p AllocatedPorts) Equal(o AllocatedPorts) bool {
+	return slices.EqualFunc(p, o, func(a, b AllocatedPortMapping) bool {
+		switch {
+		case a.Label != b.Label:
+			return false
+		case a.Value != b.Value:
+			return false
+		case a.To != b.To:
+			return false
+		case a.HostIP != b.HostIP:
+			return false
+		}
+		return true
+	})
+}
+
 func (p AllocatedPorts) Get(label string) (AllocatedPortMapping, bool) {
 	for _, port := range p {
 		if port.Label == label {
@@ -2733,6 +2749,23 @@ type DNSConfig struct {
 	Servers  []string
 	Searches []string
 	Options  []string
+}
+
+func (d *DNSConfig) Equal(o *DNSConfig) bool {
+	if d == nil || o == nil {
+		return d == o
+	}
+
+	switch {
+	case !slices.Equal(d.Servers, o.Servers):
+		return false
+	case !slices.Equal(d.Searches, o.Searches):
+		return false
+	case !slices.Equal(d.Options, o.Options):
+		return false
+	}
+
+	return true
 }
 
 func (d *DNSConfig) Copy() *DNSConfig {
@@ -7924,6 +7957,47 @@ func DefaultTemplate() *Template {
 	}
 }
 
+func (t *Template) Equal(o *Template) bool {
+	if t == nil || o == nil {
+		return t == o
+	}
+	switch {
+	case t.SourcePath != o.SourcePath:
+		return false
+	case t.DestPath != o.DestPath:
+		return false
+	case t.EmbeddedTmpl != o.EmbeddedTmpl:
+		return false
+	case t.ChangeMode != o.ChangeMode:
+		return false
+	case t.ChangeSignal != o.ChangeSignal:
+		return false
+	case !t.ChangeScript.Equal(o.ChangeScript):
+		return false
+	case t.Splay != o.Splay:
+		return false
+	case t.Perms != o.Perms:
+		return false
+	case !pointer.Eq(t.Uid, o.Uid):
+		return false
+	case !pointer.Eq(t.Gid, o.Gid):
+		return false
+	case t.LeftDelim != o.LeftDelim:
+		return false
+	case t.RightDelim != o.RightDelim:
+		return false
+	case t.Envvars != o.Envvars:
+		return false
+	case t.VaultGrace != o.VaultGrace:
+		return false
+	case !t.Wait.Equal(o.Wait):
+		return false
+	case t.ErrMissingKey != o.ErrMissingKey:
+		return false
+	}
+	return true
+}
+
 func (t *Template) Copy() *Template {
 	if t == nil {
 		return nil
@@ -8035,6 +8109,23 @@ type ChangeScript struct {
 	FailOnError bool
 }
 
+func (cs *ChangeScript) Equal(o *ChangeScript) bool {
+	if cs == nil || o == nil {
+		return cs == o
+	}
+	switch {
+	case cs.Command != o.Command:
+		return false
+	case !slices.Equal(cs.Args, o.Args):
+		return false
+	case cs.Timeout != o.Timeout:
+		return false
+	case cs.FailOnError != o.FailOnError:
+		return false
+	}
+	return true
+}
+
 func (cs *ChangeScript) Copy() *ChangeScript {
 	if cs == nil {
 		return nil
@@ -8090,22 +8181,15 @@ func (wc *WaitConfig) Copy() *WaitConfig {
 }
 
 func (wc *WaitConfig) Equal(o *WaitConfig) bool {
-	if wc.Min == nil && o.Min != nil {
+	if wc == nil || o == nil {
+		return wc == o
+	}
+	switch {
+	case !pointer.Eq(wc.Min, o.Min):
+		return false
+	case !pointer.Eq(wc.Max, o.Max):
 		return false
 	}
-
-	if wc.Max == nil && o.Max != nil {
-		return false
-	}
-
-	if wc.Min != nil && (o.Min == nil || *wc.Min != *o.Min) {
-		return false
-	}
-
-	if wc.Max != nil && (o.Max == nil || *wc.Max != *o.Max) {
-		return false
-	}
-
 	return true
 }
 
@@ -8768,6 +8852,25 @@ type TaskArtifact struct {
 	RelativeDest string
 }
 
+func (ta *TaskArtifact) Equal(o *TaskArtifact) bool {
+	if ta == nil || o == nil {
+		return ta == o
+	}
+	switch {
+	case ta.GetterSource != o.GetterSource:
+		return false
+	case !maps.Equal(ta.GetterOptions, o.GetterOptions):
+		return false
+	case !maps.Equal(ta.GetterHeaders, o.GetterHeaders):
+		return false
+	case ta.GetterMode != o.GetterMode:
+		return false
+	case ta.RelativeDest != o.RelativeDest:
+		return false
+	}
+	return true
+}
+
 func (ta *TaskArtifact) Copy() *TaskArtifact {
 	if ta == nil {
 		return nil
@@ -9049,6 +9152,10 @@ func (a *Affinity) Equal(o *Affinity) bool {
 			a.Weight == o.Weight
 }
 
+func (a *Affinity) Hash() string {
+	return fmt.Sprintf("%s %s %s %d", a.LTarget, a.RTarget, a.Operand, a.Weight)
+}
+
 func (a *Affinity) Copy() *Affinity {
 	if a == nil {
 		return nil
@@ -9128,6 +9235,10 @@ type Spread struct {
 
 	// Memoized string representation
 	str string
+}
+
+func (s *Spread) Hash() string {
+	return s.String()
 }
 
 type Affinities []*Affinity
@@ -9254,6 +9365,21 @@ func DefaultEphemeralDisk() *EphemeralDisk {
 	}
 }
 
+func (d *EphemeralDisk) Equal(o *EphemeralDisk) bool {
+	if d == nil || o == nil {
+		return d == o
+	}
+	switch {
+	case d.Sticky != o.Sticky:
+		return false
+	case d.SizeMB != o.SizeMB:
+		return false
+	case d.Migrate != o.Migrate:
+		return false
+	}
+	return true
+}
+
 // Validate validates EphemeralDisk
 func (d *EphemeralDisk) Validate() error {
 	if d.SizeMB < 10 {
@@ -9312,6 +9438,25 @@ func DefaultVaultBlock() *Vault {
 		Env:        true,
 		ChangeMode: VaultChangeModeRestart,
 	}
+}
+
+func (v *Vault) Equal(o *Vault) bool {
+	if v == nil || o == nil {
+		return v == o
+	}
+	switch {
+	case !slices.Equal(v.Policies, o.Policies):
+		return false
+	case v.Namespace != o.Namespace:
+		return false
+	case v.Env != o.Env:
+		return false
+	case v.ChangeMode != o.ChangeMode:
+		return false
+	case v.ChangeSignal != o.ChangeSignal:
+		return false
+	}
+	return true
 }
 
 // Copy returns a copy of this Vault block.

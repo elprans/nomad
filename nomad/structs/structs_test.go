@@ -14,6 +14,7 @@ import (
 	"github.com/hashicorp/nomad/helper/pointer"
 	"github.com/hashicorp/nomad/helper/uuid"
 	"github.com/kr/pretty"
+	"github.com/shoenig/test/must"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -7119,4 +7120,28 @@ func requireErrors(t *testing.T, err error, expected ...string) {
 	}
 
 	require.Equal(t, expected, found)
+}
+
+func TestEphemeralDisk_Equal(t *testing.T) {
+	original := &EphemeralDisk{
+		Sticky:  false,
+		SizeMB:  1,
+		Migrate: false,
+	}
+
+	t.Run("equal", func(t *testing.T) {
+		must.Equal(t, original, &EphemeralDisk{Sticky: false, SizeMB: 1, Migrate: false})
+	})
+
+	t.Run("sticky", func(t *testing.T) {
+		must.NotEqual(t, original, &EphemeralDisk{Sticky: true, SizeMB: 1, Migrate: false})
+	})
+
+	t.Run("size", func(t *testing.T) {
+		must.NotEqual(t, original, &EphemeralDisk{Sticky: false, SizeMB: 2, Migrate: false})
+	})
+
+	t.Run("migrate", func(t *testing.T) {
+		must.NotEqual(t, original, &EphemeralDisk{Sticky: false, SizeMB: 1, Migrate: true})
+	})
 }

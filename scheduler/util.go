@@ -8,9 +8,8 @@ import (
 	log "github.com/hashicorp/go-hclog"
 	memdb "github.com/hashicorp/go-memdb"
 	"github.com/hashicorp/go-set"
-	"github.com/hashicorp/nomad/helper"
+	"github.com/hashicorp/nomad/lib/lang"
 	"github.com/hashicorp/nomad/nomad/structs"
-	"github.com/shoenig/netlog"
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
 )
@@ -264,7 +263,7 @@ func tasksUpdated(jobA, jobB *structs.Job, taskGroup string) comparison {
 		if at.User != bt.User {
 			return difference("task user", at.User, bt.User)
 		}
-		if !helper.OpaqueMapsEq(at.Config, bt.Config) {
+		if !lang.OpaqueMapsEqual(at.Config, bt.Config) {
 			return difference("task config", at.Config, bt.Config)
 		}
 		if !maps.Equal(at.Env, bt.Env) {
@@ -586,7 +585,6 @@ func inplaceUpdate(ctx Context, eval *structs.Evaluation, job *structs.Job,
 		// a rolling upgrade since that cannot be done in-place.
 		existing := update.Alloc.Job
 		if c := tasksUpdated(job, existing, update.TaskGroup.Name); c.modified {
-			netlog.Red("UPDATE2", "msg", c.String())
 			continue
 		}
 
@@ -831,7 +829,6 @@ func genericAllocUpdateFn(ctx Context, stack Stack, evalID string) allocUpdateTy
 		// Check if the task drivers or config has changed, requires
 		// a destructive upgrade since that cannot be done in-place.
 		if c := tasksUpdated(newJob, existing.Job, newTG.Name); c.modified {
-			netlog.Red("UPDATE", "msg", c.String())
 			return false, true, nil
 		}
 

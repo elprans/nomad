@@ -148,6 +148,8 @@ func (a *Allocations) GC(alloc *Allocation, q *QueryOptions) error {
 // Note: for cluster topologies where API consumers don't have network access to
 // Nomad clients, set api.ClientConnTimeout to a small value (ex 1ms) to avoid
 // long pauses on this API call.
+//
+// COMPAT: Use WriteOptions instead of QueryOptions in 1.6.0.
 func (a *Allocations) Restart(alloc *Allocation, taskName string, q *QueryOptions) error {
 	req := AllocationRestartRequest{
 		TaskName: taskName,
@@ -164,6 +166,8 @@ func (a *Allocations) Restart(alloc *Allocation, taskName string, q *QueryOption
 // Note: for cluster topologies where API consumers don't have network access to
 // Nomad clients, set api.ClientConnTimeout to a small value (ex 1ms) to avoid
 // long pauses on this API call.
+//
+// COMPAT: Use WriteOptions instead of QueryOptions in 1.6.0.
 func (a *Allocations) RestartAllTasks(alloc *Allocation, q *QueryOptions) error {
 	req := AllocationRestartRequest{
 		AllTasks: true,
@@ -179,9 +183,27 @@ func (a *Allocations) RestartAllTasks(alloc *Allocation, q *QueryOptions) error 
 // Note: for cluster topologies where API consumers don't have network access to
 // Nomad clients, set api.ClientConnTimeout to a small value (ex 1ms) to avoid
 // long pauses on this API call.
+//
+// COMPAT: Use WriteOptions instead of QueryOptions in 1.6.0.
 func (a *Allocations) Stop(alloc *Allocation, q *QueryOptions) (*AllocStopResponse, error) {
+	// COMPAT: Remove in 1.6.0
+	// The method should take WriteOptions instead of QueryOptions.
+	var w *WriteOptions
+	if q != nil {
+		w = &WriteOptions{
+			Region:    q.Region,
+			Namespace: q.Namespace,
+			AuthToken: q.AuthToken,
+			Headers:   q.Headers,
+			ctx:       q.ctx,
+		}
+	}
+
 	var resp AllocStopResponse
-	_, err := a.client.putQuery("/v1/allocation/"+alloc.ID+"/stop", nil, &resp, q)
+	wm, err := a.client.put("/v1/allocation/"+alloc.ID+"/stop", nil, &resp, w)
+	resp.LastIndex = wm.LastIndex
+	resp.RequestTime = wm.RequestTime
+
 	return &resp, err
 }
 
@@ -198,6 +220,8 @@ type AllocStopResponse struct {
 // Note: for cluster topologies where API consumers don't have network access to
 // Nomad clients, set api.ClientConnTimeout to a small value (ex 1ms) to avoid
 // long pauses on this API call.
+//
+// COMPAT: Use WriteOptions instead of QueryOptions in 1.6.0.
 func (a *Allocations) Signal(alloc *Allocation, q *QueryOptions, task, signal string) error {
 	req := AllocSignalRequest{
 		Signal: signal,

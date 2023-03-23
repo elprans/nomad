@@ -36,6 +36,7 @@ import (
 	"github.com/opencontainers/runc/libcontainer/specconv"
 	lutils "github.com/opencontainers/runc/libcontainer/utils"
 	"github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 )
 
@@ -73,6 +74,15 @@ func NewExecutorWithIsolation(logger hclog.Logger) Executor {
 	if err := shelpers.Init(); err != nil {
 		logger.Error("unable to initialize stats", "error", err)
 	}
+
+	logrusLevel, err := logrus.ParseLevel(logger.GetLevel().String())
+	if err != nil {
+		logrusLevel = logrus.InfoLevel
+	}
+	logrus.SetLevel(logrusLevel)
+	logrus.SetOutput(logger.StandardWriter(&hclog.StandardLoggerOptions{}))
+	logrus.SetFormatter(new(logrus.JSONFormatter))
+
 	return &LibcontainerExecutor{
 		id:             strings.ReplaceAll(uuid.Generate(), "-", "_"),
 		logger:         logger,
@@ -527,7 +537,9 @@ func configureCapabilities(cfg *lconfigs.Config, command *ExecCommand) {
 	default:
 		// otherwise apply the plugin + task capability configuration
 		cfg.Capabilities = &lconfigs.Capabilities{
-			Bounding: command.Capabilities,
+			Bounding:  command.Capabilities,
+			Permitted: command.Capabilities,
+			Effective: command.Capabilities,
 		}
 	}
 }

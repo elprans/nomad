@@ -550,6 +550,19 @@ func (n *Node) UpdateStatus(args *structs.NodeUpdateStatusRequest, reply *struct
 			allocsUpdated := node.LastAllocUpdateIndex > node.LastMissedHeartbeatIndex
 			if len(allocs) > 0 && !allocsUpdated {
 				args.Status = structs.NodeStatusInit
+				break
+			}
+
+			// Check if node pool exists.
+			if node.NodePool != "" {
+				pool, err := snap.NodePoolByName(ws, node.NodePool)
+				if err != nil {
+					return err
+				}
+				if pool == nil {
+					args.Status = structs.NodeStatusInit
+					break
+				}
 			}
 		}
 	case structs.NodeStatusDisconnected:

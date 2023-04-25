@@ -292,6 +292,7 @@ type Server struct {
 type endpoints struct {
 	Status              *Status
 	Node                *Node
+	NodePool            *NodePool
 	Job                 *Job
 	CSIVolume           *CSIVolume
 	CSIPlugin           *CSIPlugin
@@ -1286,6 +1287,7 @@ func (s *Server) setupRpcServer(server *rpc.Server, ctx *RPCContext) {
 	_ = server.Register(NewKeyringEndpoint(s, ctx, s.encrypter))
 	_ = server.Register(NewNamespaceEndpoint(s, ctx))
 	_ = server.Register(NewNodeEndpoint(s, ctx))
+	_ = server.Register(NewNodePoolEndpoint(s, ctx))
 	_ = server.Register(NewPeriodicEndpoint(s, ctx))
 	_ = server.Register(NewPlanEndpoint(s, ctx))
 	_ = server.Register(NewRegionEndpoint(s, ctx))

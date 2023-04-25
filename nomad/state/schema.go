@@ -24,6 +24,7 @@ const (
 	TableACLAuthMethods       = "acl_auth_methods"
 	TableACLBindingRules      = "acl_binding_rules"
 	TableAllocs               = "allocs"
+	TableNodePools            = "node_pools"
 )
 
 const (
@@ -66,6 +67,7 @@ func init() {
 	RegisterSchemaFactories([]SchemaFactory{
 		indexTableSchema,
 		nodeTableSchema,
+		nodePoolTableSchema,
 		jobTableSchema,
 		jobSummarySchema,
 		jobVersionSchema,
@@ -156,6 +158,22 @@ func nodeTableSchema() *memdb.TableSchema {
 				Unique:       true,
 				Indexer: &memdb.UUIDFieldIndex{
 					Field: "SecretID",
+				},
+			},
+		},
+	}
+}
+
+func nodePoolTableSchema() *memdb.TableSchema {
+	return &memdb.TableSchema{
+		Name: TableNodePools,
+		Indexes: map[string]*memdb.IndexSchema{
+			"id": {
+				Name:         "id",
+				AllowMissing: false,
+				Unique:       true,
+				Indexer: &memdb.StringFieldIndex{
+					Field: "Name",
 				},
 			},
 		},

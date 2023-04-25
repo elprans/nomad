@@ -46,6 +46,40 @@ func (d *diffResult) Append(other *diffResult) {
 
 // readyNodesInDCs returns all the ready nodes in the given datacenters and a
 // mapping of each data center to the count of ready nodes.
+func readyNodesInDCsAndPools(state State, dcs []string, pools []string) ([]*structs.Node, map[string]struct{}, map[string]int, error) {
+	// Index the DCs
+	dcMap := make(map[string]int)
+
+	// Scan the nodes
+	ws := memdb.NewWatchSet()
+	var out []*structs.Node
+	notReady := map[string]struct{}{}
+	iter, err := state.Nodes(ws)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	for {
+		raw := iter.Next()
+		if raw == nil {
+			break
+		}
+
+		// Filter on datacenter and status
+		node := raw.(*structs.Node)
+		if !node.Ready() {
+			notReady[node.ID] = struct{}{}
+			continue
+		}
+		if node.IsInAnyDC(dcs) && node.IsInAnyPool(pools) {
+			out = append(out, node)
+			dcMap[node.Datacenter]++
+		}
+	}
+	return out, notReady, dcMap, nil
+}
+
+// readyNodesInDCs returns all the ready nodes in the given datacenters and a
+// mapping of each data center to the count of ready nodes.
 func readyNodesInDCs(state State, dcs []string) ([]*structs.Node, map[string]struct{}, map[string]int, error) {
 	// Index the DCs
 	dcMap := make(map[string]int)

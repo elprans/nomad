@@ -1636,6 +1636,59 @@ func (s *StateStore) Nodes(ws memdb.WatchSet) (memdb.ResultIterator, error) {
 	return iter, nil
 }
 
+func (s *StateStore) NodePools(ws memdb.WatchSet) (memdb.ResultIterator, error) {
+	txn := s.db.ReadTxn()
+
+	// Walk the entire namespace table
+	iter, err := txn.Get(TableNodePools, "id")
+	if err != nil {
+		return nil, err
+	}
+	ws.Add(iter.WatchCh())
+	return iter, nil
+}
+
+func (s *StateStore) NodePoolByName(ws memdb.WatchSet, name string) (*structs.NodePool, error) {
+	txn := s.db.ReadTxn()
+
+	watchCh, existing, err := txn.FirstWatch(TableNodePools, "id", name)
+	if err != nil {
+		return nil, fmt.Errorf("node pool lookup failed: %v", err)
+	}
+	ws.Add(watchCh)
+
+	if existing != nil {
+		return existing.(*structs.NodePool), nil
+	}
+	return nil, nil
+}
+
+func (s *StateStore) UpsertNodePool(msgType structs.MessageType, index uint64, pool *structs.NodePool) error {
+	txn := s.db.WriteTxnMsgT(msgType, index)
+	defer txn.Abort()
+
+	// Check if the namespace already exists
+	existing, err := txn.First(TableNodePools, "id", pool.Name)
+	if err != nil {
+		return fmt.Errorf("node pool lookup failed: %v", err)
+	}
+
+	if existing != nil {
+		exist := existing.(*structs.NodePool)
+		pool.CreateIndex = exist.CreateIndex
+		pool.ModifyIndex = index
+	} else {
+		pool.CreateIndex = index
+		pool.ModifyIndex = index
+	}
+
+	if err := txn.Insert(TableNodePools, pool); err != nil {
+		return err
+	}
+
+	return txn.Commit()
+}
+
 // UpsertJob is used to register a job or update a job definition
 func (s *StateStore) UpsertJob(msgType structs.MessageType, index uint64, sub *structs.JobSubmission, job *structs.Job) error {
 	txn := s.db.WriteTxnMsgT(msgType, index)

@@ -341,6 +341,9 @@ func (n *nomadFSM) Apply(log *raft.Log) interface{} {
 		return n.applyACLBindingRulesUpsert(buf[1:], log.Index)
 	case structs.ACLBindingRulesDeleteRequestType:
 		return n.applyACLBindingRulesDelete(buf[1:], log.Index)
+	case structs.NodePoolUpsertRequestType:
+		return n.applyUpsertNodePool(msgType, buf[1:], log.Index)
+	case structs.NodePoolDeleteRequestType:
 	}
 
 	// Check enterprise only message types.
@@ -535,6 +538,20 @@ func (n *nomadFSM) applyNodeEligibilityUpdate(msgType structs.MessageType, buf [
 		req.Eligibility == structs.NodeSchedulingEligible {
 		n.blockedEvals.Unblock(node.ComputedClass, index)
 		n.blockedEvals.UnblockNode(req.NodeID, index)
+	}
+
+	return nil
+}
+
+func (n *nomadFSM) applyUpsertNodePool(msgType structs.MessageType, buf []byte, index uint64) interface{} {
+	defer metrics.MeasureSince([]string{"nomad", "fsm", "upsert_node_pool"}, time.Now())
+	var req structs.NodePoolUpsertRequest
+	if err := structs.Decode(buf, &req); err != nil {
+		panic(fmt.Errorf("failed to decode request: %v", err))
+	}
+
+	if err := n.state.UpsertNodePool(msgType, index, req.NodePool); err != nil {
+		return err
 	}
 
 	return nil

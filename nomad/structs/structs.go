@@ -125,6 +125,8 @@ const (
 	ACLAuthMethodsDeleteRequestType              MessageType = 56
 	ACLBindingRulesUpsertRequestType             MessageType = 57
 	ACLBindingRulesDeleteRequestType             MessageType = 58
+	NodePoolUpsertRequestType                    MessageType = 59
+	NodePoolDeleteRequestType                    MessageType = 60
 
 	// Namespace types were moved from enterprise and therefore start at 64
 	NamespaceUpsertRequestType MessageType = 64
@@ -2107,6 +2109,8 @@ type Node struct {
 	// together for the purpose of determining scheduling pressure.
 	NodeClass string
 
+	NodePool string
+
 	// ComputedClass is a unique id that identifies nodes with a common set of
 	// attributes and capabilities.
 	ComputedClass string
@@ -2337,6 +2341,14 @@ func (n *Node) ComparableResources() *ComparableResources {
 func (n *Node) IsInAnyDC(datacenters []string) bool {
 	for _, dc := range datacenters {
 		if glob.Glob(dc, n.Datacenter) {
+			return true
+		}
+	}
+	return false
+}
+func (n *Node) IsInAnyPool(pools []string) bool {
+	for _, p := range pools {
+		if glob.Glob(p, n.NodePool) {
 			return true
 		}
 	}
@@ -4353,6 +4365,8 @@ type Job struct {
 	// Datacenters contains all the datacenters this job is allowed to span
 	Datacenters []string
 
+	NodePools []string
+
 	// Constraints can be specified at a job level and apply to
 	// all the task groups and tasks.
 	Constraints []*Constraint
@@ -4529,6 +4543,7 @@ func (j *Job) Copy() *Job {
 	nj := new(Job)
 	*nj = *j
 	nj.Datacenters = slices.Clone(nj.Datacenters)
+	nj.NodePools = slices.Clone(nj.NodePools)
 	nj.Constraints = CopySliceConstraints(nj.Constraints)
 	nj.Affinities = CopySliceAffinities(nj.Affinities)
 	nj.Multiregion = nj.Multiregion.Copy()
@@ -4795,6 +4810,7 @@ func (j *Job) Stub(summary *JobSummary, fields *JobStubFields) *JobListStub {
 		ParentID:          j.ParentID,
 		Name:              j.Name,
 		Datacenters:       j.Datacenters,
+		NodePools:         j.NodePools,
 		Multiregion:       j.Multiregion,
 		Type:              j.Type,
 		Priority:          j.Priority,
@@ -4987,6 +5003,7 @@ type JobListStub struct {
 	Name              string
 	Namespace         string `json:",omitempty"`
 	Datacenters       []string
+	NodePools         []string
 	Multiregion       *Multiregion
 	Type              string
 	Priority          int

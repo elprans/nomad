@@ -2200,6 +2200,10 @@ func (n *Node) Canonicalize() {
 		return
 	}
 
+	if n.NodePool == "" {
+		n.NodePool = "default"
+	}
+
 	// Ensure SchedulingEligibility is correctly set whenever draining so the plan applier and other scheduling logic
 	// only need to check SchedulingEligibility when determining whether a placement is feasible on a node.
 	if n.DrainStrategy != nil {
@@ -2366,6 +2370,7 @@ func (n *Node) Stub(fields *NodeStubFields) *NodeListStub {
 		Datacenter:            n.Datacenter,
 		Name:                  n.Name,
 		NodeClass:             n.NodeClass,
+		NodePool:              n.NodePool,
 		Version:               n.Attributes["nomad.version"],
 		Drain:                 n.DrainStrategy != nil,
 		SchedulingEligibility: n.SchedulingEligibility,
@@ -2404,6 +2409,7 @@ type NodeListStub struct {
 	Datacenter            string
 	Name                  string
 	NodeClass             string
+	NodePool              string
 	Version               string
 	Drain                 bool
 	SchedulingEligibility string

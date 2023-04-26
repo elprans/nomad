@@ -21,6 +21,16 @@ type NodePoolListResponse struct {
 	QueryMeta
 }
 
+type NodePoolListNodesRequest struct {
+	Name string
+	QueryOptions
+}
+
+type NodePoolListNodesResponse struct {
+	Nodes []*NodeListStub
+	QueryMeta
+}
+
 type NodePoolUpsertRequest struct {
 	NodePool *NodePool
 	WriteRequest

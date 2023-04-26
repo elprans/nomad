@@ -4,7 +4,9 @@
 package agent
 
 import (
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/hashicorp/nomad/nomad/structs"
 )
@@ -52,4 +54,38 @@ func (s *HTTPServer) NodePoolCreateRequest(resp http.ResponseWriter, req *http.R
 	}
 	setIndex(resp, out.Index)
 	return nil, nil
+}
+
+func (s *HTTPServer) NodePoolSpecificRequest(resp http.ResponseWriter, req *http.Request) (interface{}, error) {
+	path := strings.TrimPrefix(req.URL.Path, "/v1/node_pool/")
+	switch {
+	case strings.HasSuffix(path, "/nodes"):
+		pool := strings.TrimSuffix(path, "/nodes")
+		return s.NodePoolListNodes(resp, req, pool)
+	}
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (s *HTTPServer) NodePoolListNodes(resp http.ResponseWriter, req *http.Request, name string) (interface{}, error) {
+	if req.Method != "GET" {
+		return nil, CodedError(405, ErrInvalidMethod)
+	}
+
+	args := structs.NodePoolListNodesRequest{
+		Name: name,
+	}
+	if s.parse(resp, req, &args.Region, &args.QueryOptions) {
+		return nil, nil
+	}
+
+	var out structs.NodePoolListNodesResponse
+	if err := s.agent.RPC("NodePool.ListNodesInPool", &args, &out); err != nil {
+		return nil, err
+	}
+
+	setMeta(resp, &out.QueryMeta)
+	if out.Nodes == nil {
+		out.Nodes = make([]*structs.NodeListStub, 0)
+	}
+	return out.Nodes, nil
 }

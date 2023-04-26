@@ -81,7 +81,7 @@ func (n *NodePool) UpsertNodePool(args *structs.NodePoolUpsertRequest, reply *st
 	if authErr != nil {
 		return structs.ErrPermissionDenied
 	}
-	defer metrics.MeasureSince([]string{"nomad", "job", "register"}, time.Now())
+	defer metrics.MeasureSince([]string{"nomad", "node_pool", "upsert"}, time.Now())
 
 	// Check management permissions.
 	if aclObj, err := n.srv.ResolveACL(args); err != nil {
@@ -104,4 +104,57 @@ func (n *NodePool) UpsertNodePool(args *structs.NodePoolUpsertRequest, reply *st
 	// Update the index
 	reply.Index = index
 	return nil
+}
+
+func (n *NodePool) ListNodesInPool(args *structs.NodePoolListNodesRequest, reply *structs.NodePoolListNodesResponse) error {
+	authErr := n.srv.Authenticate(n.ctx, args)
+	if done, err := n.srv.forward("NodePool.ListNodesInPool", args, args, reply); done {
+		return err
+	}
+	n.srv.MeasureRPCRate("node_pool", structs.RateMetricWrite, args)
+	if authErr != nil {
+		return structs.ErrPermissionDenied
+	}
+	defer metrics.MeasureSince([]string{"nomad", "node_pool", "list_nodes"}, time.Now())
+
+	// Setup the blocking query
+	opts := blockingOptions{
+		queryOpts: &args.QueryOptions,
+		queryMeta: &reply.QueryMeta,
+		run: func(ws memdb.WatchSet, s *state.StateStore) error {
+			// Iterate over all the namespaces
+			var err error
+			var iter memdb.ResultIterator
+
+			iter, err = s.NodesByPool(ws, args.Name)
+			if err != nil {
+				return err
+			}
+
+			reply.Nodes = nil
+			for {
+				raw := iter.Next()
+				if raw == nil {
+					break
+				}
+				node := raw.(*structs.Node)
+				reply.Nodes = append(reply.Nodes, node.Stub(nil))
+			}
+
+			// Use the last index that affected the namespace table
+			index, err := s.Index(state.TableNodePools)
+			if err != nil {
+				return err
+			}
+
+			// Ensure we never set the index to zero, otherwise a blocking query cannot be used.
+			// We floor the index at one, since realistically the first write must have a higher index.
+			if index == 0 {
+				index = 1
+			}
+			reply.Index = index
+			return nil
+		}}
+
+	return n.srv.blockingRPC(&opts)
 }

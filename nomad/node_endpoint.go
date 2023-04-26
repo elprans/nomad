@@ -169,6 +169,16 @@ func (n *Node) Register(args *structs.NodeRegisterRequest, reply *structs.NodeUp
 		return err
 	}
 
+	if args.Node.NodePool != "" {
+		pool, err := snap.NodePoolByName(ws, args.Node.NodePool)
+		if err != nil {
+			return err
+		}
+		if pool == nil {
+			return fmt.Errorf("node pool %v does not exist", args.Node.NodePool)
+		}
+	}
+
 	if originalNode != nil {
 		// Check if the SecretID has been tampered with
 		if args.Node.SecretID != originalNode.SecretID && originalNode.SecretID != "" {

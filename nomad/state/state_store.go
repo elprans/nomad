@@ -160,6 +160,10 @@ func NewStateStore(config *StateStoreConfig) (*StateStore, error) {
 		return nil, fmt.Errorf("enterprise state store initialization failed: %v", err)
 	}
 
+	if err := s.nodePoolsInit(); err != nil {
+		return nil, err
+	}
+
 	return s, nil
 }
 
@@ -195,6 +199,17 @@ func (s *StateStore) namespaceInit() error {
 		return fmt.Errorf("inserting default namespace failed: %v", err)
 	}
 
+	return nil
+}
+
+func (s *StateStore) nodePoolsInit() error {
+	defaultPool := &structs.NodePool{
+		Name:        "default",
+		Description: "Default pool",
+	}
+	if err := s.UpsertNodePool(structs.NodePoolUpsertRequestType, 1, defaultPool); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -1661,6 +1676,18 @@ func (s *StateStore) NodePoolByName(ws memdb.WatchSet, name string) (*structs.No
 		return existing.(*structs.NodePool), nil
 	}
 	return nil, nil
+}
+
+func (s *StateStore) NodesByPool(ws memdb.WatchSet, name string) (memdb.ResultIterator, error) {
+	txn := s.db.ReadTxn()
+
+	// Walk the entire namespace table
+	iter, err := txn.Get("nodes", "node_pool", name)
+	if err != nil {
+		return nil, err
+	}
+	ws.Add(iter.WatchCh())
+	return iter, nil
 }
 
 func (s *StateStore) UpsertNodePool(msgType structs.MessageType, index uint64, pool *structs.NodePool) error {

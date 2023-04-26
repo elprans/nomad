@@ -160,6 +160,14 @@ func nodeTableSchema() *memdb.TableSchema {
 					Field: "SecretID",
 				},
 			},
+			"node_pool": {
+				Name:         "node_pool",
+				AllowMissing: true,
+				Unique:       false,
+				Indexer: &memdb.StringFieldIndex{
+					Field: "NodePool",
+				},
+			},
 		},
 	}
 }

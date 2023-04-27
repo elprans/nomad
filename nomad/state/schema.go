@@ -184,6 +184,14 @@ func nodePoolTableSchema() *memdb.TableSchema {
 					Field: "Name",
 				},
 			},
+			"path": {
+				Name:         "path",
+				AllowMissing: false,
+				Unique:       false,
+				Indexer: &memdb.StringFieldIndex{
+					Field: "Path",
+				},
+			},
 		},
 	}
 }

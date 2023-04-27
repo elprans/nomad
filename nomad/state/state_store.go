@@ -210,6 +210,15 @@ func (s *StateStore) nodePoolsInit() error {
 	if err := s.UpsertNodePool(structs.NodePoolUpsertRequestType, 1, defaultPool); err != nil {
 		return err
 	}
+
+	allPool := &structs.NodePool{
+		Name:        "all",
+		Description: "All nodes pool",
+		Path:        "/",
+	}
+	if err := s.UpsertNodePool(structs.NodePoolUpsertRequestType, 1, allPool); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -1694,7 +1703,19 @@ func (s *StateStore) UpsertNodePool(msgType structs.MessageType, index uint64, p
 	txn := s.db.WriteTxnMsgT(msgType, index)
 	defer txn.Abort()
 
-	// Check if the namespace already exists
+	err := s.upsertNodePoolImpl(index, pool, txn)
+	if err != nil {
+		return err
+	}
+
+	return txn.Commit()
+}
+
+func (s *StateStore) upsertNodePoolImpl(index uint64, pool *structs.NodePool, txn *txn) error {
+	pool.Canonicalize()
+	fmt.Println(pool.Path)
+
+	// Check if the pool already exists
 	existing, err := txn.First(TableNodePools, "id", pool.Name)
 	if err != nil {
 		return fmt.Errorf("node pool lookup failed: %v", err)
@@ -1702,6 +1723,10 @@ func (s *StateStore) UpsertNodePool(msgType structs.MessageType, index uint64, p
 
 	if existing != nil {
 		exist := existing.(*structs.NodePool)
+		if exist.Path != pool.Path {
+			return fmt.Errorf("pool %s already exists", pool.Name)
+		}
+
 		pool.CreateIndex = exist.CreateIndex
 		pool.ModifyIndex = index
 	} else {
@@ -1713,7 +1738,14 @@ func (s *StateStore) UpsertNodePool(msgType structs.MessageType, index uint64, p
 		return err
 	}
 
-	return txn.Commit()
+	for _, p := range pool.Children {
+		err := s.upsertNodePoolImpl(index, p, txn)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // UpsertJob is used to register a job or update a job definition

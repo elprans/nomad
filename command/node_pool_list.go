@@ -38,11 +38,14 @@ func (c *NodePoolListCommand) Run(args []string) int {
 	sort.Slice(pools, func(i, j int) bool { return pools[i].Name < pools[j].Name })
 
 	rows := make([]string, len(pools)+1)
-	rows[0] = "Name|Description"
+	rows[0] = "Name|Path|Description|Meta"
 	for i, p := range pools {
-		rows[i+1] = fmt.Sprintf("%s|%s",
+		rows[i+1] = fmt.Sprintf("%s|%s|%s|%v",
 			p.Name,
-			p.Description)
+			p.Path,
+			p.Description,
+			p.Meta,
+		)
 	}
 
 	c.Ui.Output(formatList(rows))

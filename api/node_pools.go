@@ -29,6 +29,9 @@ type NodePool struct {
 	Name        string            `hcl:"name,label"`
 	Description string            `hcl:"description,optional"`
 	Meta        map[string]string `hcl:"meta,optional"`
+	Children    []*NodePool       `hcl:"node_pool,block"`
+
+	Path        string
 	CreateIndex uint64
 	ModifyIndex uint64
 }

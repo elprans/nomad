@@ -8437,6 +8437,35 @@ func (ts *TaskState) Successful() bool {
 	return ts.State == TaskStateDead && !ts.Failed
 }
 
+func (ts *TaskState) Equal(o *TaskState) bool {
+	if ts.State != o.State {
+		return false
+	}
+	if ts.Failed != o.Failed {
+		return false
+	}
+	if ts.Restarts != o.Restarts {
+		return false
+	}
+	if ts.LastRestart != o.LastRestart {
+		return false
+	}
+	if ts.StartedAt != o.StartedAt {
+		return false
+	}
+	if ts.FinishedAt != o.FinishedAt {
+		return false
+	}
+	if len(ts.Events) != len(o.Events) {
+		return false
+	}
+	if ts.TaskHandle != o.TaskHandle {
+		return false
+	}
+
+	return true
+}
+
 const (
 	// TaskSetupFailure indicates that the task could not be started due to a
 	// a setup failure.
@@ -11257,6 +11286,41 @@ func (a *AllocNetworkStatus) Copy() *AllocNetworkStatus {
 	}
 }
 
+func (a *AllocNetworkStatus) Equal(o *AllocNetworkStatus) bool {
+	// note: this accounts for when DNSConfig is non-nil but empty
+	switch {
+	case a == nil && o.IsZero():
+		return true
+	case o == nil && a.IsZero():
+		return true
+	case a == nil || o == nil:
+		return a == o
+	}
+
+	switch {
+	case a.InterfaceName != o.InterfaceName:
+		return false
+	case a.Address != o.Address:
+		return false
+	case !a.DNS.Equal(o.DNS):
+		return false
+	}
+	return true
+}
+
+func (a *AllocNetworkStatus) IsZero() bool {
+	if a == nil {
+		return true
+	}
+	if a.InterfaceName != "" || a.Address != "" {
+		return false
+	}
+	if a.DNS != nil && (len(a.DNS.Options) > 0 || len(a.DNS.Searches) > 0 || len(a.DNS.Servers) > 0) {
+		return false
+	}
+	return true
+}
+
 // NetworkStatus is an interface satisfied by alloc runner, for acquiring the
 // network status of an allocation.
 type NetworkStatus interface {
@@ -11331,6 +11395,24 @@ func (a *AllocDeploymentStatus) Copy() *AllocDeploymentStatus {
 	}
 
 	return c
+}
+
+func (a *AllocDeploymentStatus) Equal(o *AllocDeploymentStatus) bool {
+	if a == nil || o == nil {
+		return a == o
+	}
+
+	switch {
+	case *a.Healthy != *o.Healthy:
+		return false
+	case a.Timestamp != o.Timestamp:
+		return false
+	case a.Canary != o.Canary:
+		return false
+	case a.ModifyIndex != o.ModifyIndex:
+		return false
+	}
+	return true
 }
 
 const (

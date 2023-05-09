@@ -2823,6 +2823,13 @@ func (d *DNSConfig) Copy() *DNSConfig {
 	}
 }
 
+func (d *DNSConfig) IsZero() bool {
+	if d == nil {
+		return true
+	}
+	return len(d.Options) == 0 || len(d.Searches) == 0 || len(d.Servers) == 0
+}
+
 // NetworkResource is used to represent available network
 // resources
 type NetworkResource struct {
@@ -8358,6 +8365,16 @@ func (h *TaskHandle) Copy() *TaskHandle {
 	return &newTH
 }
 
+func (h *TaskHandle) Equal(o *TaskHandle) bool {
+	if h == nil || o == nil {
+		return h == o
+	}
+	if h.Version != o.Version {
+		return false
+	}
+	return bytes.Equal(h.DriverState, o.DriverState)
+}
+
 // Set of possible states for a task.
 const (
 	TaskStatePending = "pending" // The task is waiting to be run.
@@ -8459,8 +8476,13 @@ func (ts *TaskState) Equal(o *TaskState) bool {
 	if len(ts.Events) != len(o.Events) {
 		return false
 	}
-	if ts.TaskHandle != o.TaskHandle {
+	if !ts.TaskHandle.Equal(o.TaskHandle) {
 		return false
+	}
+	for i, tsEvent := range ts.Events {
+		if !tsEvent.Equal(o.Events[i]) {
+			return false
+		}
 	}
 
 	return true
@@ -8796,6 +8818,31 @@ func (e *TaskEvent) GoString() string {
 		return ""
 	}
 	return fmt.Sprintf("%v - %v", e.Time, e.Type)
+}
+
+// Equal on TaskEvent ignores the deprecated fields
+func (e *TaskEvent) Equal(o *TaskEvent) bool {
+	if e == nil || o == nil {
+		return e == o
+	}
+
+	if e.Type != o.Type {
+		return false
+	}
+	if e.Time != o.Time {
+		return false
+	}
+	if e.Message != o.Message {
+		return false
+	}
+	if e.DisplayMessage != o.DisplayMessage {
+		return false
+	}
+	if !maps.Equal(e.Details, o.Details) {
+		return false
+	}
+
+	return true
 }
 
 // SetDisplayMessage sets the display message of TaskEvent
@@ -11315,7 +11362,7 @@ func (a *AllocNetworkStatus) IsZero() bool {
 	if a.InterfaceName != "" || a.Address != "" {
 		return false
 	}
-	if a.DNS != nil && (len(a.DNS.Options) > 0 || len(a.DNS.Searches) > 0 || len(a.DNS.Servers) > 0) {
+	if !a.DNS.IsZero() {
 		return false
 	}
 	return true
@@ -11403,7 +11450,7 @@ func (a *AllocDeploymentStatus) Equal(o *AllocDeploymentStatus) bool {
 	}
 
 	switch {
-	case *a.Healthy != *o.Healthy:
+	case !pointer.Eq(a.Healthy, o.Healthy):
 		return false
 	case a.Timestamp != o.Timestamp:
 		return false

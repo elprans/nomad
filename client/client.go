@@ -1276,8 +1276,9 @@ func (c *Client) restoreState() error {
 		if err != nil {
 			c.logger.Error("error restoring last acknowledged alloc state, will update again",
 				err, "alloc_id", alloc.ID)
+		} else {
+			ar.AcknowledgeState(allocState)
 		}
-		ar.AcknowledgeState(allocState)
 
 		// Maybe mark the alloc for halt on missing server heartbeats
 		if c.heartbeatStop.shouldStop(alloc) {
@@ -2161,23 +2162,11 @@ func (c *Client) allocSync() {
 				continue
 			}
 
-			sync := make([]*structs.Allocation, 0, len(updates))
-			for allocID, update := range updates {
-				if ar, ok := c.allocs[allocID]; ok {
-					if !ar.LastAcknowledgedStateIsCurrent(update) {
-						sync = append(sync, update)
-					}
-				} else {
-					// no allocrunner (typically a failed placement), so we need
-					// to send update
-					sync = append(sync, update)
-				}
-			}
+			sync := c.filterAcknowledgedUpdates(updates)
 			if len(sync) == 0 {
 				// No updates to send
 				updates = make(map[string]*structs.Allocation, len(updates))
-				syncTicker.Stop()
-				syncTicker = time.NewTicker(allocSyncIntv)
+				syncTicker.Reset(allocSyncIntv)
 				continue
 			}
 
@@ -2193,8 +2182,7 @@ func (c *Client) allocSync() {
 				// Error updating allocations, do *not* clear
 				// updates and retry after backoff
 				c.logger.Error("error updating allocations", "error", err)
-				syncTicker.Stop()
-				syncTicker = time.NewTicker(c.retryIntv(allocSyncRetryIntv))
+				syncTicker.Reset(c.retryIntv(allocSyncRetryIntv))
 				continue
 			}
 
@@ -2218,10 +2206,27 @@ func (c *Client) allocSync() {
 			// we may call it in a tight loop before draining
 			// buffered updates.
 			updates = make(map[string]*structs.Allocation, len(updates))
-			syncTicker.Stop()
-			syncTicker = time.NewTicker(allocSyncIntv)
+			syncTicker.Reset(allocSyncIntv)
 		}
 	}
+}
+
+func (c *Client) filterAcknowledgedUpdates(updates map[string]*structs.Allocation) []*structs.Allocation {
+	sync := make([]*structs.Allocation, 0, len(updates))
+	c.allocLock.RLock()
+	defer c.allocLock.RUnlock()
+	for allocID, update := range updates {
+		if ar, ok := c.allocs[allocID]; ok {
+			if !ar.LastAcknowledgedStateIsCurrent(update) {
+				sync = append(sync, update)
+			}
+		} else {
+			// no allocrunner (typically a failed placement), so we need
+			// to send update
+			sync = append(sync, update)
+		}
+	}
+	return sync
 }
 
 // allocUpdates holds the results of receiving updated allocations from the

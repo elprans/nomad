@@ -1446,12 +1446,9 @@ func (ar *allocRunner) LastAcknowledgedStateIsCurrent(a *structs.Allocation) boo
 		return false
 	}
 
-	for taskName, taskState := range last.TaskStates {
-		newTaskState, ok := a.TaskStates[taskName]
-		if !ok || !taskState.Equal(newTaskState) {
-			return false
-		}
-	}
+	maps.EqualFunc(last.TaskStates, a.TaskStates, func(st, o *structs.TaskState) bool {
+		return st.Equal(o)
+	})
 
 	return true
 }

@@ -8473,16 +8473,13 @@ func (ts *TaskState) Equal(o *TaskState) bool {
 	if ts.FinishedAt != o.FinishedAt {
 		return false
 	}
-	if len(ts.Events) != len(o.Events) {
+	if !slices.EqualFunc(ts.Events, o.Events, func(ts, o *TaskEvent) bool {
+		return ts.Equal(o)
+	}) {
 		return false
 	}
 	if !ts.TaskHandle.Equal(o.TaskHandle) {
 		return false
-	}
-	for i, tsEvent := range ts.Events {
-		if !tsEvent.Equal(o.Events[i]) {
-			return false
-		}
 	}
 
 	return true

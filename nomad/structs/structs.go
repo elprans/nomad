@@ -1125,6 +1125,13 @@ type AllocUpdateRequest struct {
 	WriteRequest
 }
 
+type AllocUpdateResponse struct {
+	// UpdateTTL is the amount we want the client to backoff for its next update
+	UpdateTTL time.Duration
+
+	WriteMeta
+}
+
 // AllocUpdateDesiredTransitionRequest is used to submit changes to allocations
 // desired transition state.
 type AllocUpdateDesiredTransitionRequest struct {

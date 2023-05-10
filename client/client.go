@@ -2149,7 +2149,7 @@ func (c *Client) allocSync() {
 				WriteRequest: structs.WriteRequest{Region: c.Region()},
 			}
 
-			var resp structs.GenericResponse
+			var resp structs.AllocUpdateResponse
 			err := c.RPC("Node.UpdateAlloc", &args, &resp)
 			if err != nil {
 				// Error updating allocations, do *not* clear
@@ -2173,13 +2173,12 @@ func (c *Client) allocSync() {
 			}
 			c.allocLock.RUnlock()
 
-			// Successfully updated allocs, reset map and ticker.
-			// Always reset ticker to give loop time to receive
-			// alloc updates. If the RPC took the ticker interval
-			// we may call it in a tight loop before draining
-			// buffered updates.
+			// Successfully updated allocs, reset map and ticker as instructed
+			// by server. Always reset ticker to give loop time to receive alloc
+			// updates. Otherwise if the RPC took the ticker interval we may
+			// call it in a tight loop before draining buffered updates.
 			updates = make(map[string]*structs.Allocation, len(updates))
-			syncTicker.Reset(allocSyncIntv)
+			syncTicker.Reset(resp.UpdateTTL)
 		}
 	}
 }

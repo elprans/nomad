@@ -76,6 +76,10 @@ type Node struct {
 	// update, and may be nil if there is no batch pending.
 	updateTimer *time.Timer
 
+	// updatesLastBatchSize records the size of the batch most recently written
+	// to Raft (updated at the start of the write)
+	updatesLastBatchSize int
+
 	// updatesLock synchronizes access to the updates list,
 	// the future and the timer.
 	updatesLock sync.Mutex
@@ -1243,7 +1247,7 @@ func (n *Node) GetClientAllocs(args *structs.NodeSpecificRequest,
 //     Register method.
 //   - The node status is down or disconnected. Clients must call the
 //     UpdateStatus method to update its status in the server.
-func (n *Node) UpdateAlloc(args *structs.AllocUpdateRequest, reply *structs.GenericResponse) error {
+func (n *Node) UpdateAlloc(args *structs.AllocUpdateRequest, reply *structs.AllocUpdateResponse) error {
 
 	authErr := n.srv.Authenticate(n.ctx, args)
 
@@ -1399,6 +1403,10 @@ func (n *Node) UpdateAlloc(args *structs.AllocUpdateRequest, reply *structs.Gene
 			// slice resizing.
 			n.updates = make([]*structs.Allocation, 0, len(updates))
 			n.evals = make([]*structs.Evaluation, 0, len(evals))
+			n.updatesLastBatchSize = len(updates)
+
+			metrics.AddSample([]string{"nomad", "client", "update_alloc", "batch_size"},
+				float32(n.updatesLastBatchSize))
 
 			n.updateFuture = nil
 			n.updateTimer = nil
@@ -1406,9 +1414,24 @@ func (n *Node) UpdateAlloc(args *structs.AllocUpdateRequest, reply *structs.Gene
 
 			// Perform the batch update
 			n.batchUpdate(future, updates, evals)
+			n.logger.Trace("alloc update batch written", "last_batch_size", n.updatesLastBatchSize)
+
 		})
 	}
+
+	lastBatch := n.updatesLastBatchSize
 	n.updatesLock.Unlock()
+	n.logger.Trace("alloc update batch accepted", "last_batch_size", n.updatesLastBatchSize)
+
+	// TODO(tgross): this threshold is really arbitrary. Can we tune it
+	// dynamically? Should the delay be capped so we don't delay clients for a
+	// very long time?
+	threshold := 1000
+	if lastBatch > threshold {
+		reply.UpdateTTL = time.Duration(200+lastBatch-threshold) * time.Millisecond
+	} else {
+		reply.UpdateTTL = time.Duration(200 * time.Millisecond)
+	}
 
 	// Wait for the future
 	if err := future.Wait(); err != nil {

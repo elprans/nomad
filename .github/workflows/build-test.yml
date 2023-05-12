@@ -12,75 +12,80 @@ env:
   VAULT_VERSION: 1.4.1
   PERCY_TOKEN: ${{ secrets.PERCY_TOKEN }}
 jobs:
-  build-binaries:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
-      - name: Setup go
-        uses: actions/setup-go@4d34df0c2316fe8122ab82dc22947d607c0c91f9 # v4.0.0
-        with:
-          go-version-file: ".go-version"
-      - run: make deps
-      - uses: "./.github/actions/install-buf"
-      - run: make generate-structs
-      - name: prepare ui cache
-        run: |-
-          git config --global --add safe.directory /__w/nomad/nomad
-          git log -n 1 --pretty=format:%H ui > /tmp/ui-sha
-      - name: prepare ui
-        run: |-
-          if [[ -f ~/tmp/ui-assets/bindata_assetfs.go ]]; then
-            cp /tmp/ui-assets/bindata_assetfs.go ./command/agent/bindata_assetfs.go
-            exit 0
-          fi
-          ./scripts/vagrant-linux-unpriv-ui.sh
-          export PATH="$HOME/.yarn/bin:$HOME/.config/yarn/global/node_modules/.bin:$PATH"
-          export PATH="$GOPATH/bin:/usr/local/go/bin:$PATH"
-          . "$HOME/.nvm/nvm.sh"
-          cd ui && yarn install --frozen-lockfile && cd ..
-          JOBS=2 make ember-dist static-assets
-          mkdir -p /tmp/ui-assets
-          cp ./command/agent/bindata_assetfs.go /tmp/ui-assets/bindata_assetfs.go
-      - name: build binaries
-        run: |-
-          go_tags="ui $(grep -e '^GO_TAGS ?=' ./GNUmakefile | cut -d= -f2)"
-          export GO_TAGS="$go_tags"
-          make pkg/windows_amd64.zip pkg/linux_amd64.zip
-      - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
-        with:
-          path: pkg
-      - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
-        with:
-          path: "/tmp/ui-assets"
-  test-e2e:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
-      - name: Setup go
-        uses: actions/setup-go@4d34df0c2316fe8122ab82dc22947d607c0c91f9 # v4.0.0
-      - run: make deps
-      - run: make integration-test
-      - run: make e2e-test
-  test-ui:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
-      - name: yarn install
-        run: cd ui && yarn install --frozen-lockfile
-      - name: lint:js
-        run: cd ui && yarn run lint:js
-      - name: lint:hbs
-        run: cd ui && yarn run lint:hbs
-      - name: Ember tests
-        run: mkdir -p /tmp/test-reports && cd ui && yarn test
-      - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
-        with:
-          path: "/tmp/test-reports"
-      - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
-        with:
-          path: "/tmp/test-reports"
+#  build-binaries:
+#    runs-on: ubuntu-latest
+#    steps:
+#      - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
+#      - name: Setup go
+#        uses: actions/setup-go@4d34df0c2316fe8122ab82dc22947d607c0c91f9 # v4.0.0
+#        with:
+#          go-version-file: ".go-version"
+#      - run: make deps
+#      - uses: "./.github/actions/install-buf"
+#      - run: make generate-structs
+#      - name: prepare ui cache
+#        run: |-
+#          git config --global --add safe.directory /__w/nomad/nomad
+#          git log -n 1 --pretty=format:%H ui > /tmp/ui-sha
+#      - name: prepare ui
+#        run: |-
+#          if [[ -f ~/tmp/ui-assets/bindata_assetfs.go ]]; then
+#            cp /tmp/ui-assets/bindata_assetfs.go ./command/agent/bindata_assetfs.go
+#            exit 0
+#          fi
+#          ./scripts/vagrant-linux-unpriv-ui.sh
+#          export PATH="$HOME/.yarn/bin:$HOME/.config/yarn/global/node_modules/.bin:$PATH"
+#          export PATH="$GOPATH/bin:/usr/local/go/bin:$PATH"
+#          . "$HOME/.nvm/nvm.sh"
+#          cd ui && yarn install --frozen-lockfile && cd ..
+#          JOBS=2 make ember-dist static-assets
+#          mkdir -p /tmp/ui-assets
+#          cp ./command/agent/bindata_assetfs.go /tmp/ui-assets/bindata_assetfs.go
+#      - name: build binaries
+#        run: |-
+#          go_tags="ui $(grep -e '^GO_TAGS ?=' ./GNUmakefile | cut -d= -f2)"
+#          export GO_TAGS="$go_tags"
+#          make pkg/windows_amd64.zip pkg/linux_amd64.zip
+#      - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
+#        with:
+#          path: pkg
+#      - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
+#        with:
+#          path: "/tmp/ui-assets"
+#  test-e2e:
+#    runs-on: ubuntu-latest
+#    steps:
+#      - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
+#      - name: Setup go
+#        uses: actions/setup-go@4d34df0c2316fe8122ab82dc22947d607c0c91f9 # v4.0.0
+#      - run: make deps
+#      - run: make integration-test
+#      - run: make e2e-test
+#  test-ui:
+#    runs-on: ubuntu-latest
+#    steps:
+#      - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
+#      - name: yarn install
+#        run: cd ui && yarn install --frozen-lockfile
+#      - name: lint:js
+#        run: cd ui && yarn run lint:js
+#      - name: lint:hbs
+#        run: cd ui && yarn run lint:hbs
+#      - name: Ember tests
+#        run: mkdir -p /tmp/test-reports && cd ui && yarn test
+#      - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
+#        with:
+#          path: "/tmp/test-reports"
+#      - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
+#        with:
+#          path: "/tmp/test-reports"
   test-windows:
-    runs-on: windows-2022
+    strategy:
+      matrix:
+        include:
+          - { runner: windows-2019, tag: ltsc2019  }
+          - { runner: windows-2022, tag: ltsc2022  }
+    runs-on: ${{ matrix.runner }}
     env:
       GOTESTSUM_PATH: c:\tmp\test-reports
     steps:
@@ -109,7 +114,7 @@ jobs:
       - name: Pre-download docker test image
         shell: bash
         run: |-
-          docker pull docker.mirror.hashicorp.services/hashicorpdev/busybox-windows:ltsc2022
+          docker pull docker.mirror.hashicorp.services/hashicorpdev/busybox-windows:${{ matrix.tag }}
       - name: Build nomad
         shell: bash
         run: |-

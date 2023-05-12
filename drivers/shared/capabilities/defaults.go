@@ -38,7 +38,7 @@ func NomadDefaults() *Set {
 func DockerDefaults() *Set {
 	defaults := NomadDefaults()
 	if runtime.GOOS != "windows" {
-		defaults.Add("NET_RAW")
+		// defaults.Add("NET_RAW")
 	}
 	return defaults
 }

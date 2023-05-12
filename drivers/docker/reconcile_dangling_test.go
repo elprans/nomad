@@ -14,6 +14,7 @@ import (
 	docker "github.com/fsouza/go-dockerclient"
 	"github.com/hashicorp/go-set"
 	"github.com/shoenig/test/must"
+	"github.com/shoenig/test/wait"
 
 	"github.com/hashicorp/nomad/ci"
 	"github.com/hashicorp/nomad/client/testutil"
@@ -245,18 +246,26 @@ func TestDanglingContainerRemoval_Stopped(t *testing.T) {
 	tracked := reconciler.trackedContainers()
 	must.NotContains[string](t, container.ID, tracked)
 
-	untracked, err := reconciler.untrackedContainers(set.New[string](0), time.Now())
+	checkUntracked := func() error {
+		untracked, err := reconciler.untrackedContainers(set.New[string](0), time.Now())
+		must.NoError(t, err)
+		if untracked.Contains(container.ID) {
+			return fmt.Errorf("container ID %s in untracked set: %v", container.ID, untracked.Slice())
+		}
+		return nil
+	}
 
-	must.NoError(t, err)
-	must.NotContains[string](t, container.ID, untracked)
+	// retry because it's slower on windows :\
+	must.Wait(t, wait.InitialSuccess(
+		wait.ErrorFunc(checkUntracked),
+		wait.Timeout(time.Second),
+		wait.Gap(100*time.Millisecond),
+	))
 
 	// if we start container again, it'll be marked as untracked
 	must.NoError(t, dockerClient.StartContainer(container.ID, nil))
 
-	untracked, err = reconciler.untrackedContainers(set.New[string](0), time.Now())
+	untracked, err := reconciler.untrackedContainers(set.New[string](0), time.Now())
 	must.NoError(t, err)
-	for _, d := range untracked.Slice() {
-		t.Logf("danglin: %#v", d)
-	}
 	must.Contains[string](t, container.ID, untracked)
 }

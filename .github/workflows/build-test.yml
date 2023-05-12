@@ -83,8 +83,8 @@ jobs:
     strategy:
       matrix:
         include:
-          - { runner: windows-2019, tag: ltsc2019  }
-          - { runner: windows-2022, tag: ltsc2022  }
+          - { runner: windows-2019-16core, tag: ltsc2019  }
+          - { runner: windows-2022-16core, tag: ltsc2022  }
     runs-on: ${{ matrix.runner }}
     env:
       GOTESTSUM_PATH: c:\tmp\test-reports

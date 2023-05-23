@@ -1,0 +1,10 @@
+self-hosted-runner:
+  # Labels of self-hosted runner in array of string
+  labels:
+    - custom
+    - xl
+    - 22.04
+    - linux
+    - xxl
+    - 20.04
+    - custom-windows-medium

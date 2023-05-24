@@ -36,7 +36,6 @@ func NomadDefaults() *Set {
 // https://docs.docker.com/engine/reference/run/#runtime-privilege-and-linux-capabilities
 func DockerDefaults() *Set {
 	defaults := NomadDefaults()
-	defaults.Add("NET_RAW")
 	return defaults
 }
 

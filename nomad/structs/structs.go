@@ -125,6 +125,8 @@ const (
 	ACLAuthMethodsDeleteRequestType              MessageType = 56
 	ACLBindingRulesUpsertRequestType             MessageType = 57
 	ACLBindingRulesDeleteRequestType             MessageType = 58
+	NodePoolUpsertRequestType                    MessageType = 59
+	NodePoolDeleteRequestType                    MessageType = 60
 
 	// Namespace types were moved from enterprise and therefore start at 64
 	NamespaceUpsertRequestType MessageType = 64
@@ -2823,6 +2825,13 @@ func (d *DNSConfig) Copy() *DNSConfig {
 	}
 }
 
+func (d *DNSConfig) IsZero() bool {
+	if d == nil {
+		return true
+	}
+	return len(d.Options) == 0 || len(d.Searches) == 0 || len(d.Servers) == 0
+}
+
 // NetworkResource is used to represent available network
 // resources
 type NetworkResource struct {
@@ -4305,6 +4314,29 @@ type JobSubmission struct {
 	//
 	// The raft index the Job this submission is associated with.
 	JobModifyIndex uint64
+}
+
+// Hash returns a value representative of the intended uniquness of a
+// JobSubmission in the job_submission state store table (namespace, jobID, version).
+func (js *JobSubmission) Hash() string {
+	return fmt.Sprintf("%s \x00 %s \x00 %d", js.Namespace, js.JobID, js.Version)
+}
+
+// Copy creates a deep copy of js.
+func (js *JobSubmission) Copy() *JobSubmission {
+	if js == nil {
+		return nil
+	}
+	return &JobSubmission{
+		Source:         js.Source,
+		Format:         js.Format,
+		VariableFlags:  maps.Clone(js.VariableFlags),
+		Variables:      js.Variables,
+		Namespace:      js.Namespace,
+		JobID:          js.JobID,
+		Version:        js.Version,
+		JobModifyIndex: js.JobModifyIndex,
+	}
 }
 
 // Job is the scope of a scheduling request to Nomad. It is the largest
@@ -8358,6 +8390,16 @@ func (h *TaskHandle) Copy() *TaskHandle {
 	return &newTH
 }
 
+func (h *TaskHandle) Equal(o *TaskHandle) bool {
+	if h == nil || o == nil {
+		return h == o
+	}
+	if h.Version != o.Version {
+		return false
+	}
+	return bytes.Equal(h.DriverState, o.DriverState)
+}
+
 // Set of possible states for a task.
 const (
 	TaskStatePending = "pending" // The task is waiting to be run.
@@ -8435,6 +8477,37 @@ func (ts *TaskState) Copy() *TaskState {
 // service or system allocation.
 func (ts *TaskState) Successful() bool {
 	return ts.State == TaskStateDead && !ts.Failed
+}
+
+func (ts *TaskState) Equal(o *TaskState) bool {
+	if ts.State != o.State {
+		return false
+	}
+	if ts.Failed != o.Failed {
+		return false
+	}
+	if ts.Restarts != o.Restarts {
+		return false
+	}
+	if ts.LastRestart != o.LastRestart {
+		return false
+	}
+	if ts.StartedAt != o.StartedAt {
+		return false
+	}
+	if ts.FinishedAt != o.FinishedAt {
+		return false
+	}
+	if !slices.EqualFunc(ts.Events, o.Events, func(ts, o *TaskEvent) bool {
+		return ts.Equal(o)
+	}) {
+		return false
+	}
+	if !ts.TaskHandle.Equal(o.TaskHandle) {
+		return false
+	}
+
+	return true
 }
 
 const (
@@ -8767,6 +8840,31 @@ func (e *TaskEvent) GoString() string {
 		return ""
 	}
 	return fmt.Sprintf("%v - %v", e.Time, e.Type)
+}
+
+// Equal on TaskEvent ignores the deprecated fields
+func (e *TaskEvent) Equal(o *TaskEvent) bool {
+	if e == nil || o == nil {
+		return e == o
+	}
+
+	if e.Type != o.Type {
+		return false
+	}
+	if e.Time != o.Time {
+		return false
+	}
+	if e.Message != o.Message {
+		return false
+	}
+	if e.DisplayMessage != o.DisplayMessage {
+		return false
+	}
+	if !maps.Equal(e.Details, o.Details) {
+		return false
+	}
+
+	return true
 }
 
 // SetDisplayMessage sets the display message of TaskEvent
@@ -10798,6 +10896,7 @@ func (a *Allocation) Stub(fields *AllocStubFields) *AllocListStub {
 		TaskStates:            a.TaskStates,
 		DeploymentStatus:      a.DeploymentStatus,
 		FollowupEvalID:        a.FollowupEvalID,
+		NextAllocation:        a.NextAllocation,
 		RescheduleTracker:     a.RescheduleTracker,
 		PreemptedAllocations:  a.PreemptedAllocations,
 		PreemptedByAllocation: a.PreemptedByAllocation,
@@ -10960,6 +11059,7 @@ type AllocListStub struct {
 	TaskStates            map[string]*TaskState
 	DeploymentStatus      *AllocDeploymentStatus
 	FollowupEvalID        string
+	NextAllocation        string
 	RescheduleTracker     *RescheduleTracker
 	PreemptedAllocations  []string
 	PreemptedByAllocation string
@@ -11257,6 +11357,41 @@ func (a *AllocNetworkStatus) Copy() *AllocNetworkStatus {
 	}
 }
 
+func (a *AllocNetworkStatus) Equal(o *AllocNetworkStatus) bool {
+	// note: this accounts for when DNSConfig is non-nil but empty
+	switch {
+	case a == nil && o.IsZero():
+		return true
+	case o == nil && a.IsZero():
+		return true
+	case a == nil || o == nil:
+		return a == o
+	}
+
+	switch {
+	case a.InterfaceName != o.InterfaceName:
+		return false
+	case a.Address != o.Address:
+		return false
+	case !a.DNS.Equal(o.DNS):
+		return false
+	}
+	return true
+}
+
+func (a *AllocNetworkStatus) IsZero() bool {
+	if a == nil {
+		return true
+	}
+	if a.InterfaceName != "" || a.Address != "" {
+		return false
+	}
+	if !a.DNS.IsZero() {
+		return false
+	}
+	return true
+}
+
 // NetworkStatus is an interface satisfied by alloc runner, for acquiring the
 // network status of an allocation.
 type NetworkStatus interface {
@@ -11331,6 +11466,24 @@ func (a *AllocDeploymentStatus) Copy() *AllocDeploymentStatus {
 	}
 
 	return c
+}
+
+func (a *AllocDeploymentStatus) Equal(o *AllocDeploymentStatus) bool {
+	if a == nil || o == nil {
+		return a == o
+	}
+
+	switch {
+	case !pointer.Eq(a.Healthy, o.Healthy):
+		return false
+	case a.Timestamp != o.Timestamp:
+		return false
+	case a.Canary != o.Canary:
+		return false
+	case a.ModifyIndex != o.ModifyIndex:
+		return false
+	}
+	return true
 }
 
 const (

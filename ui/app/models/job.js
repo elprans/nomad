@@ -31,6 +31,10 @@ export default class Job extends Model {
 
   @fragment('structured-attributes') meta;
 
+  get isPack() {
+    return !!this.meta?.structured?.pack;
+  }
+
   // True when the job is the parent periodic or parameterized jobs
   // Instances of periodic or parameterized jobs are false for both properties
   @attr('boolean') periodic;
@@ -69,14 +73,14 @@ export default class Job extends Model {
   // A composite of type and other job attributes to determine
   // a better type descriptor for human interpretation rather
   // than for scheduling.
-  @computed('type', 'periodic', 'parameterized')
+  @computed('isPack', 'type', 'periodic', 'parameterized')
   get displayType() {
     if (this.periodic) {
-      return 'periodic';
+      return { type: 'periodic', isPack: this.isPack };
     } else if (this.parameterized) {
-      return 'parameterized';
+      return { type: 'parameterized', isPack: this.isPack };
     }
-    return this.type;
+    return { type: this.type, isPack: this.isPack };
   }
 
   // A composite of type and other job attributes to determine
@@ -224,6 +228,10 @@ export default class Job extends Model {
     return this.store.adapterFor('job').fetchRawDefinition(this);
   }
 
+  fetchRawSpecification() {
+    return this.store.adapterFor('job').fetchRawSpecification(this);
+  }
+
   forcePeriodic() {
     return this.store.adapterFor('job').forcePeriodic(this);
   }
@@ -248,11 +256,13 @@ export default class Job extends Model {
 
   update() {
     assert('A job must be parsed before updated', this._newDefinitionJSON);
+
     return this.store.adapterFor('job').update(this);
   }
 
   parse() {
     const definition = this._newDefinition;
+    const variables = this._newDefinitionVariables;
     let promise;
 
     try {
@@ -269,9 +279,10 @@ export default class Job extends Model {
     } catch (err) {
       // If the definition is invalid JSON, assume it is HCL. If it is invalid
       // in anyway, the parse endpoint will throw an error.
+
       promise = this.store
         .adapterFor('job')
-        .parse(this._newDefinition)
+        .parse(this._newDefinition, variables)
         .then((response) => {
           this.set('_newDefinitionJSON', response);
           this.setIdByPayload(response);
@@ -333,6 +344,10 @@ export default class Job extends Model {
   // An arbitrary HCL or JSON string that is used by the serializer to plan
   // and run this job. Used for both new job models and saved job models.
   @attr('string') _newDefinition;
+
+  // An arbitrary JSON string that is used by the adapter to plan
+  // and run this job. Used for both new job models and saved job models.
+  @attr('string') _newDefinitionVariables;
 
   // The new definition may be HCL, in which case the API will need to parse the
   // spec first. In order to preserve both the original HCL and the parsed response

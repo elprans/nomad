@@ -254,6 +254,93 @@ module('Acceptance | job status panel', function (hooks) {
     });
   });
 
+  test('After running/pending allocations are covered, fill in allocs by jobVersion, descending (batch)', async function (assert) {
+    assert.expect(7);
+    let job = server.create('job', {
+      status: 'running',
+      datacenters: ['*'],
+      type: 'batch',
+      resourceSpec: ['M: 256, C: 500'], // a single group
+      createAllocations: false,
+      allocStatusDistribution: {
+        running: 0.5,
+        failed: 0.3,
+        unknown: 0,
+        lost: 0,
+        complete: 0.2,
+      },
+      groupTaskCount: 5,
+      shallow: true,
+      version: 5,
+      noActiveDeployment: true,
+    });
+
+    server.create('allocation', {
+      jobId: job.id,
+      clientStatus: 'running',
+      jobVersion: 5,
+    });
+    server.create('allocation', {
+      jobId: job.id,
+      clientStatus: 'pending',
+      jobVersion: 5,
+    });
+    server.create('allocation', {
+      jobId: job.id,
+      clientStatus: 'running',
+      jobVersion: 3,
+    });
+    server.create('allocation', {
+      jobId: job.id,
+      clientStatus: 'failed',
+      jobVersion: 4,
+    });
+    server.create('allocation', {
+      jobId: job.id,
+      clientStatus: 'complete',
+      jobVersion: 4,
+    });
+    server.create('allocation', {
+      jobId: job.id,
+      clientStatus: 'lost',
+      jobVersion: 5,
+    });
+
+    await visit(`/jobs/${job.id}`);
+    assert.dom('.job-status-panel').exists();
+    // We expect to see 5 represented-allocations, since that's the number in our groupTaskCount
+    assert
+      .dom('.ungrouped-allocs .represented-allocation')
+      .exists({ count: 5 });
+
+    // We expect 2 of them to be running, and one to be pending, since running/pending allocations superecede other clientStatuses
+    assert
+      .dom('.ungrouped-allocs .represented-allocation.running')
+      .exists({ count: 2 });
+    assert
+      .dom('.ungrouped-allocs .represented-allocation.pending')
+      .exists({ count: 1 });
+
+    // We expect 1 to be lost, since it has the highest jobVersion
+    assert
+      .dom('.ungrouped-allocs .represented-allocation.lost')
+      .exists({ count: 1 });
+
+    // We expect the remaining one to be complete, rather than failed, since it comes earlier in the jobAllocStatuses.batch constant
+    assert
+      .dom('.ungrouped-allocs .represented-allocation.complete')
+      .exists({ count: 1 });
+    assert
+      .dom('.ungrouped-allocs .represented-allocation.failed')
+      .doesNotExist();
+
+    await percySnapshot(assert, {
+      percyCSS: `
+        .allocation-row td { display: none; }
+      `,
+    });
+  });
+
   test('Status Panel groups allocations when they get past a threshold', async function (assert) {
     assert.expect(6);
 
@@ -705,6 +792,81 @@ module('Acceptance | job status panel', function (hooks) {
       assert
         .dom('[data-test-history-search-no-match]')
         .exists('No match message is shown');
+    });
+  });
+
+  module('Batch jobs', function () {
+    test('Batch jobs have a valid Completed status', async function (assert) {
+      this.store = this.owner.lookup('service:store');
+
+      let batchJob = server.create('job', {
+        status: 'running',
+        datacenters: ['*'],
+        type: 'batch',
+        createAllocations: true,
+        allocStatusDistribution: {
+          running: 0.5,
+          failed: 0.3,
+          unknown: 0,
+          lost: 0,
+          complete: 0.2,
+        },
+        groupTaskCount: 10,
+        noActiveDeployment: true,
+        shallow: true,
+        version: 1,
+      });
+
+      let serviceJob = server.create('job', {
+        status: 'running',
+        datacenters: ['*'],
+        type: 'service',
+        createAllocations: true,
+        allocStatusDistribution: {
+          running: 0.5,
+          failed: 0.3,
+          unknown: 0,
+          lost: 0,
+          complete: 0.2,
+        },
+        groupTaskCount: 10,
+        noActiveDeployment: true,
+        shallow: true,
+        version: 1,
+      });
+
+      // Batch job should have 5 running, 3 failed, 2 completed
+      await visit(`/jobs/${batchJob.id}`);
+      assert.dom('.job-status-panel').exists();
+      assert
+        .dom('.running-allocs-title')
+        .hasText(
+          '5/8 Remaining Allocations Running',
+          'Completed allocations do not count toward the Remaining denominator'
+        );
+      assert
+        .dom('.ungrouped-allocs .represented-allocation.complete')
+        .exists(
+          { count: 2 },
+          `2 complete allocations are represented in the status panel`
+        );
+
+      // Service job should have 5 running, 3 failed, 2 unplaced
+
+      await visit(`/jobs/${serviceJob.id}`);
+      assert.dom('.job-status-panel').exists();
+      assert.dom('.running-allocs-title').hasText('5/10 Allocations Running');
+      assert
+        .dom('.ungrouped-allocs .represented-allocation.complete')
+        .doesNotExist(
+          'For a service job, no copmlete allocations are represented in the status panel'
+        );
+      assert
+        .dom('.ungrouped-allocs .represented-allocation.unplaced')
+        .exists(
+          { count: 2 },
+          `2 unplaced allocations are represented in the status panel`
+        );
     });
   });
 

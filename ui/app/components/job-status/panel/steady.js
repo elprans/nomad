@@ -1,25 +1,18 @@
 // @ts-check
 import Component from '@glimmer/component';
 import { alias } from '@ember/object/computed';
+import { jobAllocStatuses } from '../../../utils/allocation-client-statuses';
 
 export default class JobStatusPanelSteadyComponent extends Component {
   @alias('args.job') job;
 
-  // Build note: allocTypes order matters! We will fill up to 100% of totalAllocs in this order.
-  allocTypes = [
-    'running',
-    'pending',
-    'failed',
-    // 'unknown',
-    'lost',
-    // 'queued',
-    // 'complete',
-    'unplaced',
-  ].map((type) => {
-    return {
-      label: type,
-    };
-  });
+  get allocTypes() {
+    return jobAllocStatuses[this.args.job.type].map((type) => {
+      return {
+        label: type,
+      };
+    });
+  }
 
   /**
    * @typedef {Object} HealthStatus
@@ -83,7 +76,21 @@ export default class JobStatusPanelSteadyComponent extends Component {
       .filter(
         (a) => a.clientStatus !== 'running' && a.clientStatus !== 'pending'
       )
-      .sortBy('jobVersion')
+      .sort((a, b) => {
+        // First sort by jobVersion
+        if (a.jobVersion > b.jobVersion) return 1;
+        if (a.jobVersion < b.jobVersion) return -1;
+
+        // If jobVersion is the same, sort by status order
+        if (a.jobVersion === b.jobVersion) {
+          return (
+            jobAllocStatuses[this.args.job.type].indexOf(b.clientStatus) -
+            jobAllocStatuses[this.args.job.type].indexOf(a.clientStatus)
+          );
+        } else {
+          return 0;
+        }
+      })
       .reverse();
 
     // Iterate over the sorted allocs
@@ -126,7 +133,7 @@ export default class JobStatusPanelSteadyComponent extends Component {
   }
 
   get totalAllocs() {
-    if (this.args.job.type === 'service') {
+    if (this.args.job.type === 'service' || this.args.job.type === 'batch') {
       return this.args.job.taskGroups.reduce((sum, tg) => sum + tg.count, 0);
     } else if (this.atMostOneAllocPerNode) {
       return this.args.job.allocations.uniqBy('nodeID').length;
@@ -135,23 +142,35 @@ export default class JobStatusPanelSteadyComponent extends Component {
     }
   }
 
+  get totalNonCompletedAllocs() {
+    return this.totalAllocs - this.completedAllocs.length;
+  }
+
+  get allAllocsComplete() {
+    return this.completedAllocs.length && this.totalNonCompletedAllocs === 0;
+  }
+
   get atMostOneAllocPerNode() {
-    return this.args.job.type === 'system';
+    return this.args.job.type === 'system' || this.args.job.type === 'sysbatch';
   }
 
   get versions() {
-    return Object.values(this.allocBlocks)
+    const versions = Object.values(this.allocBlocks)
       .flatMap((allocType) => Object.values(allocType))
       .flatMap((allocHealth) => Object.values(allocHealth))
       .flatMap((allocCanary) => Object.values(allocCanary))
-      .map((a) => (!isNaN(a?.jobVersion) ? a.jobVersion : 'pending')) // "starting" allocs, and possibly others, do not yet have a jobVersion
-      .reduce(
-        (result, item) => ({
-          ...result,
-          [item]: [...(result[item] || []), item],
-        }),
-        []
-      );
+      .map((a) => (!isNaN(a?.jobVersion) ? a.jobVersion : 'unknown')) // "starting" allocs, GC'd allocs, etc. do not have a jobVersion
+      .sort((a, b) => a - b)
+      .reduce((result, item) => {
+        const existingVersion = result.find((v) => v.version === item);
+        if (existingVersion) {
+          existingVersion.allocations.push(item);
+        } else {
+          result.push({ version: item, allocations: [item] });
+        }
+        return result;
+      }, []);
+    return versions;
   }
 
   get rescheduledAllocs() {
@@ -162,7 +181,17 @@ export default class JobStatusPanelSteadyComponent extends Component {
     return this.job.allocations.filter((a) => !a.isOld && a.hasBeenRestarted);
   }
 
+  get completedAllocs() {
+    return this.job.allocations.filter(
+      (a) => !a.isOld && a.clientStatus === 'complete'
+    );
+  }
+
   get supportsRescheduling() {
     return this.job.type !== 'system';
+  }
+
+  get latestVersionAllocations() {
+    return this.job.allocations.filter((a) => !a.isOld);
   }
 }

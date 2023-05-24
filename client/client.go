@@ -43,7 +43,6 @@ import (
 	"github.com/hashicorp/nomad/client/serviceregistration/wrapper"
 	"github.com/hashicorp/nomad/client/state"
 	"github.com/hashicorp/nomad/client/stats"
-	cstructs "github.com/hashicorp/nomad/client/structs"
 	"github.com/hashicorp/nomad/client/vaultclient"
 	"github.com/hashicorp/nomad/command/agent/consul"
 	"github.com/hashicorp/nomad/helper"
@@ -57,7 +56,6 @@ import (
 	nconfig "github.com/hashicorp/nomad/nomad/structs/config"
 	"github.com/hashicorp/nomad/plugins/csi"
 	"github.com/hashicorp/nomad/plugins/device"
-	"github.com/hashicorp/nomad/plugins/drivers"
 	vaultapi "github.com/hashicorp/vault/api"
 	"github.com/shirou/gopsutil/v3/host"
 	"golang.org/x/exp/maps"
@@ -138,38 +136,6 @@ type ClientStatsReporter interface {
 	LatestHostStats() *stats.HostStats
 }
 
-// AllocRunner is the interface implemented by the core alloc runner.
-// TODO Create via factory to allow testing Client with mock AllocRunners.
-type AllocRunner interface {
-	Alloc() *structs.Allocation
-	AllocState() *arstate.State
-	Destroy()
-	Shutdown()
-	GetAllocDir() *allocdir.AllocDir
-	IsDestroyed() bool
-	IsMigrating() bool
-	IsWaiting() bool
-	Listener() *cstructs.AllocListener
-	Restore() error
-	Run()
-	StatsReporter() interfaces.AllocStatsReporter
-	Update(*structs.Allocation)
-	WaitCh() <-chan struct{}
-	DestroyCh() <-chan struct{}
-	ShutdownCh() <-chan struct{}
-	Signal(taskName, signal string) error
-	GetTaskEventHandler(taskName string) drivermanager.EventHandler
-	PersistState() error
-
-	RestartTask(taskName string, taskEvent *structs.TaskEvent) error
-	RestartRunning(taskEvent *structs.TaskEvent) error
-	RestartAll(taskEvent *structs.TaskEvent) error
-	Reconnect(update *structs.Allocation) error
-
-	GetTaskExecHandler(taskName string) drivermanager.TaskExecHandler
-	GetTaskDriverCapabilities(taskName string) (*drivers.Capabilities, error)
-}
-
 // Client is used to implement the client interaction with Nomad. Clients
 // are expected to register as a schedule-able node to the servers, and to
 // run allocations as determined by the servers.
@@ -235,8 +201,11 @@ type Client struct {
 
 	// allocs maps alloc IDs to their AllocRunner. This map includes all
 	// AllocRunners - running and GC'd - until the server GCs them.
-	allocs    map[string]AllocRunner
+	allocs    map[string]interfaces.AllocRunner
 	allocLock sync.RWMutex
+
+	// allocrunnerFactory is the function called to create new allocrunners
+	allocrunnerFactory config.AllocRunnerFactory
 
 	// invalidAllocs is a map that tracks allocations that failed because
 	// the client couldn't initialize alloc or task runners for it. This can
@@ -396,7 +365,7 @@ func NewClient(cfg *config.Config, consulCatalog consul.CatalogAPI, consulProxie
 		streamingRpcs:        structs.NewStreamingRpcRegistry(),
 		logger:               logger,
 		rpcLogger:            logger.Named("rpc"),
-		allocs:               make(map[string]AllocRunner),
+		allocs:               make(map[string]interfaces.AllocRunner),
 		allocUpdates:         make(chan *structs.Allocation, 64),
 		shutdownCh:           make(chan struct{}),
 		triggerDiscoveryCh:   make(chan struct{}),
@@ -409,6 +378,12 @@ func NewClient(cfg *config.Config, consulCatalog consul.CatalogAPI, consulProxie
 		cpusetManager:        cgutil.CreateCPUSetManager(cfg.CgroupParent, cfg.ReservableCores, logger),
 		getter:               getter.New(cfg.Artifact, logger),
 		EnterpriseClient:     newEnterpriseClient(logger),
+		allocrunnerFactory:   cfg.AllocRunnerFactory,
+	}
+
+	// we can't have this set in the default Config because of import cycles
+	if c.allocrunnerFactory == nil {
+		c.allocrunnerFactory = allocrunner.NewAllocRunner
 	}
 
 	c.batchNodeUpdates = newBatchNodeUpdates(
@@ -512,7 +487,7 @@ func NewClient(cfg *config.Config, consulCatalog consul.CatalogAPI, consulProxie
 	c.serviceRegWrapper = wrapper.NewHandlerWrapper(c.logger, c.consulService, c.nomadService)
 
 	// Batching of initial fingerprints is done to reduce the number of node
-	// updates sent to the server on startup. This is the first RPC to the servers
+	// updates sent to the server on startup.
 	go c.batchFirstFingerprints()
 
 	// create heartbeatStop. We go after the first attempt to connect to the server, so
@@ -984,7 +959,7 @@ func (c *Client) Node() *structs.Node {
 
 // getAllocRunner returns an AllocRunner or an UnknownAllocation error if the
 // client has no runner for the given alloc ID.
-func (c *Client) getAllocRunner(allocID string) (AllocRunner, error) {
+func (c *Client) getAllocRunner(allocID string) (interfaces.AllocRunner, error) {
 	c.allocLock.RLock()
 	defer c.allocLock.RUnlock()
 
@@ -1228,7 +1203,7 @@ func (c *Client) restoreState() error {
 		prevAllocWatcher := allocwatcher.NoopPrevAlloc{}
 		prevAllocMigrator := allocwatcher.NoopPrevAlloc{}
 
-		arConf := &allocrunner.Config{
+		arConf := &config.AllocRunnerConfig{
 			Alloc:               alloc,
 			Logger:              c.logger,
 			ClientConfig:        conf,
@@ -1253,7 +1228,7 @@ func (c *Client) restoreState() error {
 			Getter:              c.getter,
 		}
 
-		ar, err := allocrunner.NewAllocRunner(arConf)
+		ar, err := c.allocrunnerFactory(arConf)
 		if err != nil {
 			c.logger.Error("error running alloc", "error", err, "alloc_id", alloc.ID)
 			c.handleInvalidAllocs(alloc, err)
@@ -1268,6 +1243,14 @@ func (c *Client) restoreState() error {
 			// Destroy the alloc runner since this is a failed restore
 			ar.Destroy()
 			continue
+		}
+
+		allocState, err := c.stateDB.GetAcknowledgedState(alloc.ID)
+		if err != nil {
+			c.logger.Error("error restoring last acknowledged alloc state, will update again",
+				err, "alloc_id", alloc.ID)
+		} else {
+			ar.AcknowledgeState(allocState)
 		}
 
 		// Maybe mark the alloc for halt on missing server heartbeats
@@ -1354,7 +1337,7 @@ func (c *Client) saveState() error {
 	wg.Add(len(runners))
 
 	for id, ar := range runners {
-		go func(id string, ar AllocRunner) {
+		go func(id string, ar interfaces.AllocRunner) {
 			err := ar.PersistState()
 			if err != nil {
 				c.logger.Error("error saving alloc state", "error", err, "alloc_id", id)
@@ -1371,10 +1354,10 @@ func (c *Client) saveState() error {
 }
 
 // getAllocRunners returns a snapshot of the current set of alloc runners.
-func (c *Client) getAllocRunners() map[string]AllocRunner {
+func (c *Client) getAllocRunners() map[string]interfaces.AllocRunner {
 	c.allocLock.RLock()
 	defer c.allocLock.RUnlock()
-	runners := make(map[string]AllocRunner, len(c.allocs))
+	runners := make(map[string]interfaces.AllocRunner, len(c.allocs))
 	for id, ar := range c.allocs {
 		runners[id] = ar
 	}
@@ -2144,10 +2127,20 @@ func (c *Client) allocSync() {
 			if len(updates) == 0 {
 				continue
 			}
+			// Ensure we never send an update before we've had at least one sync
+			// from the server
+			select {
+			case <-c.serversContactedCh:
+			default:
+				continue
+			}
 
-			sync := make([]*structs.Allocation, 0, len(updates))
-			for _, alloc := range updates {
-				sync = append(sync, alloc)
+			sync := c.filterAcknowledgedUpdates(updates)
+			if len(sync) == 0 {
+				// No updates to send
+				updates = make(map[string]*structs.Allocation, len(updates))
+				syncTicker.Reset(allocSyncIntv)
+				continue
 			}
 
 			// Send to server.
@@ -2162,10 +2155,23 @@ func (c *Client) allocSync() {
 				// Error updating allocations, do *not* clear
 				// updates and retry after backoff
 				c.logger.Error("error updating allocations", "error", err)
-				syncTicker.Stop()
-				syncTicker = time.NewTicker(c.retryIntv(allocSyncRetryIntv))
+				syncTicker.Reset(c.retryIntv(allocSyncRetryIntv))
 				continue
 			}
+
+			c.allocLock.RLock()
+			for _, update := range sync {
+				if ar, ok := c.allocs[update.ID]; ok {
+					ar.AcknowledgeState(&arstate.State{
+						ClientStatus:      update.ClientStatus,
+						ClientDescription: update.ClientDescription,
+						DeploymentStatus:  update.DeploymentStatus,
+						TaskStates:        update.TaskStates,
+						NetworkStatus:     update.NetworkStatus,
+					})
+				}
+			}
+			c.allocLock.RUnlock()
 
 			// Successfully updated allocs, reset map and ticker.
 			// Always reset ticker to give loop time to receive
@@ -2173,10 +2179,27 @@ func (c *Client) allocSync() {
 			// we may call it in a tight loop before draining
 			// buffered updates.
 			updates = make(map[string]*structs.Allocation, len(updates))
-			syncTicker.Stop()
-			syncTicker = time.NewTicker(allocSyncIntv)
+			syncTicker.Reset(allocSyncIntv)
 		}
 	}
+}
+
+func (c *Client) filterAcknowledgedUpdates(updates map[string]*structs.Allocation) []*structs.Allocation {
+	sync := make([]*structs.Allocation, 0, len(updates))
+	c.allocLock.RLock()
+	defer c.allocLock.RUnlock()
+	for allocID, update := range updates {
+		if ar, ok := c.allocs[allocID]; ok {
+			if !ar.LastAcknowledgedStateIsCurrent(update) {
+				sync = append(sync, update)
+			}
+		} else {
+			// no allocrunner (typically a failed placement), so we need
+			// to send update
+			sync = append(sync, update)
+		}
+	}
+	return sync
 }
 
 // allocUpdates holds the results of receiving updated allocations from the
@@ -2623,7 +2646,7 @@ func (c *Client) addAlloc(alloc *structs.Allocation, migrateToken string) error 
 	}
 	prevAllocWatcher, prevAllocMigrator := allocwatcher.NewAllocWatcher(watcherConfig)
 
-	arConf := &allocrunner.Config{
+	arConf := &config.AllocRunnerConfig{
 		Alloc:               alloc,
 		Logger:              c.logger,
 		ClientConfig:        c.GetConfig(),
@@ -2647,7 +2670,7 @@ func (c *Client) addAlloc(alloc *structs.Allocation, migrateToken string) error 
 		Getter:              c.getter,
 	}
 
-	ar, err := allocrunner.NewAllocRunner(arConf)
+	ar, err := c.allocrunnerFactory(arConf)
 	if err != nil {
 		return err
 	}

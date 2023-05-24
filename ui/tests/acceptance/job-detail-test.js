@@ -17,7 +17,14 @@ import moduleForJob, {
 import JobDetail from 'nomad-ui/tests/pages/jobs/detail';
 
 moduleForJob('Acceptance | job detail (batch)', 'allocations', () =>
-  server.create('job', { type: 'batch', shallow: true })
+  server.create('job', {
+    type: 'batch',
+    shallow: true,
+    createAllocations: true,
+    allocStatusDistribution: {
+      running: 1,
+    },
+  })
 );
 
 moduleForJob('Acceptance | job detail (system)', 'allocations', () =>
@@ -25,11 +32,23 @@ moduleForJob('Acceptance | job detail (system)', 'allocations', () =>
     type: 'system',
     shallow: true,
     noActiveDeployment: true,
+    createAllocations: true,
+    allocStatusDistribution: {
+      running: 1,
+    },
   })
 );
 
 moduleForJob('Acceptance | job detail (sysbatch)', 'allocations', () =>
-  server.create('job', { type: 'sysbatch', shallow: true })
+  server.create('job', {
+    type: 'sysbatch',
+    shallow: true,
+    createAllocations: true,
+    allocStatusDistribution: {
+      running: 1,
+      failed: 1,
+    },
+  })
 );
 
 moduleForJobWithClientStatus(
@@ -40,6 +59,7 @@ moduleForJobWithClientStatus(
       datacenters: ['dc1'],
       type: 'sysbatch',
       createAllocations: false,
+      noActiveDeployment: true,
     })
 );
 
@@ -53,6 +73,7 @@ moduleForJobWithClientStatus(
       type: 'sysbatch',
       namespaceId: namespace.name,
       createAllocations: false,
+      noActiveDeployment: true,
     });
   }
 );
@@ -67,6 +88,7 @@ moduleForJobWithClientStatus(
       type: 'sysbatch',
       namespaceId: namespace.name,
       createAllocations: false,
+      noActiveDeployment: true,
     });
   }
 );
@@ -76,6 +98,11 @@ moduleForJob('Acceptance | job detail (sysbatch child)', 'allocations', () => {
     childrenCount: 1,
     shallow: true,
     datacenters: ['dc1'],
+    createAllocations: true,
+    allocStatusDistribution: {
+      running: 1,
+    },
+    noActiveDeployment: true,
   });
   return server.db.jobs.where({ parentId: parent.id })[0];
 });
@@ -87,6 +114,7 @@ moduleForJobWithClientStatus(
       childrenCount: 1,
       shallow: true,
       datacenters: ['dc1'],
+      noActiveDeployment: true,
     });
     return server.db.jobs.where({ parentId: parent.id })[0];
   }
@@ -101,6 +129,7 @@ moduleForJobWithClientStatus(
       shallow: true,
       namespaceId: namespace.name,
       datacenters: ['dc1'],
+      noActiveDeployment: true,
     });
     return server.db.jobs.where({ parentId: parent.id })[0];
   }
@@ -115,6 +144,7 @@ moduleForJobWithClientStatus(
       shallow: true,
       namespaceId: namespace.name,
       datacenters: ['*'],
+      noActiveDeployment: true,
     });
     return server.db.jobs.where({ parentId: parent.id })[0];
   }
@@ -164,7 +194,11 @@ moduleForJob(
 moduleForJob(
   'Acceptance | job detail (parameterized)',
   'children',
-  () => server.create('job', 'parameterized', { shallow: true }),
+  () =>
+    server.create('job', 'parameterized', {
+      shallow: true,
+      noActiveDeployment: true,
+    }),
   {
     'the default sort is submitTime descending': async (job, assert) => {
       const mostRecentLaunch = server.db.jobs
@@ -206,6 +240,10 @@ moduleForJob('Acceptance | job detail (periodic child)', 'allocations', () => {
   const parent = server.create('job', 'periodic', {
     childrenCount: 1,
     shallow: true,
+    createAllocations: true,
+    allocStatusDistribution: {
+      running: 1,
+    },
   });
   return server.db.jobs.where({ parentId: parent.id })[0];
 });
@@ -217,6 +255,10 @@ moduleForJob(
     const parent = server.create('job', 'parameterized', {
       childrenCount: 1,
       shallow: true,
+      createAllocations: true,
+      allocStatusDistribution: {
+        running: 1,
+      },
     });
     return server.db.jobs.where({ parentId: parent.id })[0];
   }

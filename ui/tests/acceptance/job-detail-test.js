@@ -24,6 +24,7 @@ moduleForJob('Acceptance | job detail (batch)', 'allocations', () =>
     allocStatusDistribution: {
       running: 1,
     },
+    noActiveDeployment: true,
   })
 );
 
@@ -48,6 +49,7 @@ moduleForJob('Acceptance | job detail (sysbatch)', 'allocations', () =>
       running: 1,
       failed: 1,
     },
+    noActiveDeployment: true,
   })
 );
 
@@ -244,6 +246,7 @@ moduleForJob('Acceptance | job detail (periodic child)', 'allocations', () => {
     allocStatusDistribution: {
       running: 1,
     },
+    noActiveDeployment: true,
   });
   return server.db.jobs.where({ parentId: parent.id })[0];
 });
@@ -259,6 +262,7 @@ moduleForJob(
       allocStatusDistribution: {
         running: 1,
       },
+      noActiveDeployment: true,
     });
     return server.db.jobs.where({ parentId: parent.id })[0];
   }

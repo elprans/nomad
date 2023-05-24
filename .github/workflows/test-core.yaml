@@ -37,6 +37,7 @@ on:
       - 'terraform/**'
       - 'ui/**'
       - 'website/**'
+
 env:
   VERBOSE: 1
   GOTESTARCH: amd64

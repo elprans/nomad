@@ -1,10 +1,12 @@
 ---
 name: Backport Assistant Runner
+
 on:
   pull_request_target:
     types:
       - closed
       - labeled
+
 jobs:
   backport:
     if: github.event.pull_request.merged

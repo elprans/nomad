@@ -1,8 +1,10 @@
 name: Semgrep
+
 on:
   pull_request: {}
   # Skipping push for now since it would run against the entire code base.
   # push:
+
 jobs:
   semgrep:
     name: Semgrep Scan

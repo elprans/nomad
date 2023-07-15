@@ -727,6 +727,25 @@ func newLibcontainerConfig(command *ExecCommand) (*lconfigs.Config, error) {
 		cfg.Cgroups.Resources.Devices = append(cfg.Cgroups.Resources.Devices, &device.Rule)
 	}
 
+	for _, device := range command.Devices {
+		if device.HostPath != "" {
+			continue
+		}
+
+		var cgDevType ldevices.Type
+		if device.Type == drivers.BlockDevice {
+			cgDevType = ldevices.BlockDevice
+		}
+
+		cfg.Cgroups.Resources.Devices = append(cfg.Cgroups.Resources.Devices, &ldevices.Rule{
+			Type:        cgDevType,
+			Major:       device.Major,
+			Minor:       device.Minor,
+			Permissions: ldevices.Permissions(device.Permissions),
+			Allow:       true,
+		})
+	}
+
 	configureCapabilities(cfg, command)
 
 	// children should not inherit Nomad agent oom_score_adj value
@@ -753,6 +772,9 @@ func cmdDevices(driverDevices []*drivers.DeviceConfig) ([]*devices.Device, error
 	r := make([]*devices.Device, len(driverDevices))
 
 	for i, d := range driverDevices {
+		if d.HostPath == "" {
+			continue
+		}
 		ed, err := ldevices.DeviceFromPath(d.HostPath, d.Permissions)
 		if err != nil {
 			return nil, fmt.Errorf("failed to make device out for %s: %v", d.HostPath, err)

@@ -608,6 +608,21 @@ message Device {
     //
     // Example: "rw"
     string cgroup_permissions = 3;
+
+    // Type is the device type.  Together with major/minor can be used
+    // to match devices instead of `host_path`.  Supported values are:
+    //  * b - block device
+    //  * c - char device
+    //  * p - FIFO device
+    string type = 4;
+
+    // Major is the device node major number, -1 for "wildcard", must be
+    // used together with non-empty `type`, and is ignored otherwise.
+    int64 major = 5;
+
+    // Minor is the device node minor number, -1 for "wildcard", must be
+    // used together with non-empty `type`, and is ignored otherwise.
+    int64 minor = 6;
 }
 
 enum TaskState {

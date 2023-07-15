@@ -92,6 +92,14 @@ var (
 		"ipc_mode": hclspec.NewAttr("ipc_mode", "string", false),
 		"cap_add":  hclspec.NewAttr("cap_add", "list(string)", false),
 		"cap_drop": hclspec.NewAttr("cap_drop", "list(string)", false),
+		"devices": hclspec.NewBlockList("devices", hclspec.NewObject(map[string]*hclspec.Spec{
+			"host_path":          hclspec.NewAttr("host_path", "string", false),
+			"container_path":     hclspec.NewAttr("container_path", "string", false),
+			"cgroup_permissions": hclspec.NewAttr("cgroup_permissions", "string", false),
+			"type":               hclspec.NewAttr("type", "string", false),
+			"major":              hclspec.NewAttr("type", "number", false),
+			"minor":              hclspec.NewAttr("type", "number", false),
+		})),
 	})
 
 	// driverCapabilities represents the RPC response for what features are
@@ -198,6 +206,29 @@ type TaskConfig struct {
 
 	// CapDrop is a set of linux capabilities to disable.
 	CapDrop []string `codec:"cap_drop"`
+
+	// Devices is a set of cgroup device rules.
+	Devices []Device `codec:"devices"`
+}
+
+type Device struct {
+	HostPath          string `codec:"host_path"`
+	ContainerPath     string `codec:"container_path"`
+	CgroupPermissions string `codec:"cgroup_permissions"`
+	Type              string `codec:"type"`
+	Major             int64  `codec:"major"`
+	Minor             int64  `codec:"minor"`
+}
+
+func (d Device) toDeviceConfig() (*drivers.DeviceConfig, error) {
+	return &drivers.DeviceConfig{
+		HostPath:    d.HostPath,
+		TaskPath:    d.ContainerPath,
+		Permissions: d.CgroupPermissions,
+		Type:        drivers.DeviceType(d.Type),
+		Major:       d.Major,
+		Minor:       d.Minor,
+	}, nil
 }
 
 func (tc *TaskConfig) validate() error {
@@ -221,6 +252,18 @@ func (tc *TaskConfig) validate() error {
 	badDrops := supported.Difference(capabilities.New(tc.CapDrop))
 	if !badDrops.Empty() {
 		return fmt.Errorf("cap_drop configured with capabilities not supported by system: %s", badDrops)
+	}
+
+	for _, device := range tc.Devices {
+		if device.HostPath != "" && device.Type != "" {
+			return fmt.Errorf("device has both host_path and type set")
+		} else if device.Type != "" {
+			if device.Type != string(drivers.BlockDevice) &&
+				device.Type != string(drivers.CharDevice) &&
+				device.Type != string(drivers.FifoDevice) {
+				return fmt.Errorf("invalid device.type: %s", device.Type)
+			}
+		}
 	}
 
 	return nil
@@ -478,6 +521,16 @@ func (d *Driver) StartTask(cfg *drivers.TaskConfig) (*drivers.TaskHandle, *drive
 	}
 	d.logger.Debug("task capabilities", "capabilities", caps)
 
+	devices := make([]*drivers.DeviceConfig, len(cfg.Devices)+len(driverConfig.Devices))
+	copy(devices, cfg.Devices)
+	for i, driverDevice := range driverConfig.Devices {
+		cfgDevice, err := driverDevice.toDeviceConfig()
+		if err != nil {
+			return nil, nil, err
+		}
+		devices[i+len(cfg.Devices)] = cfgDevice
+	}
+
 	execCmd := &executor.ExecCommand{
 		Cmd:              driverConfig.Command,
 		Args:             driverConfig.Args,
@@ -490,7 +543,7 @@ func (d *Driver) StartTask(cfg *drivers.TaskConfig) (*drivers.TaskHandle, *drive
 		StdoutPath:       cfg.StdoutPath,
 		StderrPath:       cfg.StderrPath,
 		Mounts:           cfg.Mounts,
-		Devices:          cfg.Devices,
+		Devices:          devices,
 		NetworkIsolation: cfg.NetworkIsolation,
 		ModePID:          executor.IsolationMode(d.config.DefaultModePID, driverConfig.ModePID),
 		ModeIPC:          executor.IsolationMode(d.config.DefaultModeIPC, driverConfig.ModeIPC),

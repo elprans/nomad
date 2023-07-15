@@ -423,10 +423,21 @@ func (r *LinuxResources) Copy() *LinuxResources {
 	return res
 }
 
+type DeviceType string
+
+const (
+	BlockDevice DeviceType = "block"
+	CharDevice  DeviceType = "char"
+	FifoDevice  DeviceType = "fifo"
+)
+
 type DeviceConfig struct {
 	TaskPath    string
 	HostPath    string
 	Permissions string
+	Type        DeviceType
+	Major       int64
+	Minor       int64
 }
 
 func (d *DeviceConfig) Copy() *DeviceConfig {
